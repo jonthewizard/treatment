@@ -68,5 +68,36 @@ ${concept.sectionBeats.map((b) => `${b.section}: ${b.visual}`).join("\n")}
 
   const result = await callClaude(prompt, STORYBOARD_SYS, true);
   const arr = result as Shot[] | { shots: Shot[] };
-  return Array.isArray(arr) ? arr : (arr as { shots: Shot[] }).shots || [];
+  const shots = Array.isArray(arr) ? arr : (arr as { shots: Shot[] }).shots || [];
+
+  if (totalSeconds && shots.length) {
+    normalizeDurations(shots, totalSeconds);
+  }
+
+  return shots;
+}
+
+function normalizeDurations(shots: Shot[], totalSeconds: number) {
+  const raw = shots.map((s) => {
+    const n = parseFloat(String(s.duration).replace(/[^\d.]/g, ""));
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  });
+  const sum = raw.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return;
+
+  const scale = totalSeconds / sum;
+  const scaled = raw.map((n) => Math.max(1, Math.round(n * scale)));
+
+  const drift = totalSeconds - scaled.reduce((a, b) => a + b, 0);
+  if (drift !== 0) {
+    let idx = 0;
+    for (let i = 1; i < scaled.length; i++) {
+      if (scaled[i] > scaled[idx]) idx = i;
+    }
+    scaled[idx] = Math.max(1, scaled[idx] + drift);
+  }
+
+  shots.forEach((s, i) => {
+    s.duration = `${scaled[i]}s`;
+  });
 }
