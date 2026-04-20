@@ -37,14 +37,21 @@ export async function genConcept(
   return callClaude(prompt, CONCEPT_SYS, true) as Promise<Concept>;
 }
 
+function runtimeToSeconds(runtime: string): number | null {
+  const match = runtime.trim().match(/^(\d+):(\d{2})$/);
+  if (!match) return null;
+  return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+}
+
 export async function genStoryboard(
   concept: Concept,
   lyricSections: LyricSection[],
   runtime?: string
 ): Promise<Shot[]> {
+  const totalSeconds = runtime ? runtimeToSeconds(runtime) : null;
   const prompt = `TREATMENT: ${concept.title} — ${concept.logline}
 VISUAL STYLE: ${concept.visualStyle}
-${runtime ? `SONG RUNTIME: ${runtime}` : ""}
+${totalSeconds ? `TOTAL SECONDS: ${totalSeconds} (shot durations must sum to this)` : ""}
 CHARACTERS:
 ${concept.characters.map((c) => `- ${c.name}: ${c.description}`).join("\n")}
 
