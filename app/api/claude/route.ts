@@ -119,7 +119,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let data: Record<string, unknown>;
+    let data: {
+      error?: { message?: string };
+      content?: { type: string; text: string }[];
+    };
     try {
       data = JSON.parse(rawText);
     } catch {
@@ -130,16 +133,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (data.error) {
-      const apiErr = data.error as Record<string, unknown>;
       return NextResponse.json(
-        { error: (apiErr.message as string) || JSON.stringify(data.error) },
+        { error: data.error.message || JSON.stringify(data.error) },
         { status: 500 }
       );
     }
 
-    const text = data.content
-      .filter((b: { type: string }) => b.type === "text")
-      .map((b: { text: string }) => b.text)
+    const text = (data.content ?? [])
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
       .join("\n");
 
     if (jsonMode) {
