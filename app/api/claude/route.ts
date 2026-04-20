@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
       model: CLAUDE_MODEL,
       max_tokens: 4000,
       temperature: 1,
+      top_p: 0.95,
       messages: [{ role: "user", content: prompt }],
     };
     if (system) body.system = system;

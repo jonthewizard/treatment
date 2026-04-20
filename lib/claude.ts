@@ -5,6 +5,28 @@ function nonce() {
   return Math.random().toString(36).slice(2, 8);
 }
 
+const CREATIVE_NUDGES = [
+  "lean surreal and dreamlike, embracing non-literal visuals",
+  "lean gritty documentary realism, handheld and unpolished",
+  "lean abstract and non-narrative, driven by movement and texture",
+  "lean performance-driven, the artist front and centre",
+  "lean character-driven narrative, with a clear protagonist arc",
+  "lean high-concept — one bold metaphor sustained throughout",
+  "lean nostalgic and analog, referencing a specific past era",
+  "lean futuristic and synthetic, unfamiliar worlds",
+  "lean minimalist — one location, restricted palette, strict constraints",
+  "lean epic and world-building, multiple locations and scale",
+  "lean kinetic and action-forward, fast motion and chase energy",
+  "lean quiet and contemplative, long takes and stillness",
+  "lean tactile and bodily, skin and fabric and material close-ups",
+  "lean architectural and geometric, symmetry and space",
+  "lean chaotic and maximalist, layered imagery and saturation",
+];
+
+function randomNudge(): string {
+  return CREATIVE_NUDGES[Math.floor(Math.random() * CREATIVE_NUDGES.length)];
+}
+
 async function callClaude(
   prompt: string,
   system: string,
@@ -23,7 +45,7 @@ async function callClaude(
 }
 
 export async function genIdeas(input: SongInput): Promise<Idea[]> {
-  const prompt = `Artist: ${input.artist}\nSong: ${input.title}\nGenre: ${input.genre || "n/a"}\n\nLYRICS:\n${input.lyrics}\n\n[${nonce()}]`;
+  const prompt = `Artist: ${input.artist}\nSong: ${input.title}\nGenre: ${input.genre || "n/a"}\n\nLYRICS:\n${input.lyrics}\n\nFor this round, ${randomNudge()}. The four angles should still be genuinely different from each other, but use this bias as a starting point.\n\n[${nonce()}]`;
   return callClaude(prompt, IDEAS_SYS, true) as Promise<Idea[]>;
 }
 
@@ -33,7 +55,9 @@ export async function genConcept(
 ): Promise<Concept> {
   const prompt = `Artist: ${input.artist}\nSong: ${input.title}\nGenre: ${input.genre || "n/a"}\n${
     angle ? `\nDirectional angle: ${angle.angle} — ${angle.pitch}\n` : ""
-  }\nLYRICS:\n${input.lyrics}\n\nTie sectionBeats to the lyric section labels.\n\n[${nonce()}]`;
+  }\nLYRICS:\n${input.lyrics}\n\nTie sectionBeats to the lyric section labels.${
+    angle ? "" : ` For this treatment, ${randomNudge()}.`
+  }\n\n[${nonce()}]`;
   return callClaude(prompt, CONCEPT_SYS, true) as Promise<Concept>;
 }
 
