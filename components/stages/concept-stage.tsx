@@ -144,7 +144,7 @@ export function ConceptStage({
     setShotsLoading(true);
     setShotsErr(null);
     try {
-      setShots(await genStoryboard(c, parseLyrics(input.lyrics)));
+      setShots(await genStoryboard(c, parseLyrics(input.lyrics), input.runtime || undefined));
     } catch (e) {
       setShotsErr((e as Error).message);
     } finally {

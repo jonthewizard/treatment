@@ -32,6 +32,8 @@ CRITICAL JSON RULES:
 
 export const STORYBOARD_SYS = `Build a shot list. Map shots to lyric sections. Reference characters and locations BY EXACT NAME from the provided lists — never invent new ones.
 
+If a song runtime is provided, distribute shot durations so they sum to approximately that total. Vary durations naturally — quick cuts for high-energy sections, longer holds for slow or emotional moments.
+
 Return JSON array: [{"shotNumber": 1, "section": "lyric section label", "lyricLine": "specific lyric this shot visualizes", "shotType": "wide|medium|close-up|etc", "cameraMovement": "static|handheld|dolly|etc", "description": "what's on screen", "location": "exact location name", "characters": ["exact names"], "duration": "2s"}]
 
 Aim for 14-20 shots.

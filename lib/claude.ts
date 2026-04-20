@@ -39,11 +39,12 @@ export async function genConcept(
 
 export async function genStoryboard(
   concept: Concept,
-  lyricSections: LyricSection[]
+  lyricSections: LyricSection[],
+  runtime?: string
 ): Promise<Shot[]> {
   const prompt = `TREATMENT: ${concept.title} — ${concept.logline}
 VISUAL STYLE: ${concept.visualStyle}
-
+${runtime ? `SONG RUNTIME: ${runtime}` : ""}
 CHARACTERS:
 ${concept.characters.map((c) => `- ${c.name}: ${c.description}`).join("\n")}
 
