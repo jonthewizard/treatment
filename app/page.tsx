@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import type { SongInput, Idea, Concept } from "@/types";
+import { useState, useEffect, useRef } from "react";
+import type { SongInput, Idea, Shot, TreatmentSpecs } from "@/types";
 import { saveProject, loadProject } from "@/lib/storage";
+import { genShotlist } from "@/lib/claude";
 import { InputStage } from "@/components/stages/input-stage";
 import { IdeasStage } from "@/components/stages/ideas-stage";
-import { ConceptStage } from "@/components/stages/concept-stage";
+import { ShotlistStage } from "@/components/stages/shotlist-stage";
 
 const EMPTY: SongInput = {
   artist: "",
@@ -15,53 +16,95 @@ const EMPTY: SongInput = {
   lyrics: "",
 };
 
-const STAGE_LABELS = ["Input", "Ideas", "Treatment"];
+const STAGE_LABELS = ["Input", "Ideas", "Shot List"];
 
 export default function Home() {
   const [stage, setStage] = useState(0);
   const [input, setInput] = useState<SongInput>(EMPTY);
-  const [ideas, setIdeas] = useState<Idea[] | null>(null);
+  const [idea, setIdea] = useState<Idea | null>(null);
   const [angle, setAngle] = useState<Idea | null>(null);
-  const [concept, setConcept] = useState<Concept | null>(null);
+  const [shots, setShots] = useState<Shot[]>([]);
+  const [specs, setSpecs] = useState<TreatmentSpecs[] | null>(null);
+  const [shotsLoading, setShotsLoading] = useState(false);
+  const [shotsError, setShotsError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const runIdRef = useRef(0);
+
+  async function generateShots(forAngle: Idea | null) {
+    const myId = ++runIdRef.current;
+    setShotsLoading(true);
+    setShotsError(null);
+    setShots([]);
+    setSpecs(null);
+    try {
+      const { shots: nextShots, specs: nextSpecs } = await genShotlist(
+        input,
+        forAngle
+      );
+      if (myId !== runIdRef.current) return;
+      setShots(nextShots);
+      setSpecs(nextSpecs);
+    } catch (e) {
+      if (myId !== runIdRef.current) return;
+      setShotsError((e as Error).message);
+    } finally {
+      if (myId === runIdRef.current) setShotsLoading(false);
+    }
+  }
 
   useEffect(() => {
     const p = loadProject();
     if (p) {
-      setInput(p.input || EMPTY);
-      setIdeas(p.ideas || null);
-      setAngle(p.angle || null);
-      setConcept(p.concept || null);
-      setStage(Math.min(p.stage || 0, 2));
+      const loadedInput = p.input || EMPTY;
+      // Back-compat: older projects stored `ideas: Idea[]`; pick the first.
+      const legacy = (p as unknown as { ideas?: Idea[] }).ideas;
+      const loadedIdea =
+        p.idea ?? (Array.isArray(legacy) ? legacy[0] ?? null : null);
+      const loadedAngle = p.angle || null;
+      const loadedShots = Array.isArray(p.shots) ? p.shots : [];
+      // specs is per-group; older projects may have stored a single object —
+      // discard those rather than mis-applying them to group 0.
+      const loadedSpecs = Array.isArray(p.specs) ? p.specs : null;
+
+      setInput(loadedInput);
+      setIdea(loadedIdea);
+      setAngle(loadedAngle);
+      setShots(loadedShots);
+      setSpecs(loadedSpecs);
+      // Always land on Input on reload. Saved data is preserved so the user
+      // can use the stage nav to jump back to where they left off.
+      setStage(0);
     }
     setHydrated(true);
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    saveProject({ input, ideas, angle, concept, shots: [], stage });
-  }, [input, ideas, angle, concept, stage, hydrated]);
+    saveProject({ input, idea, angle, shots, specs, stage });
+  }, [input, idea, angle, shots, specs, stage, hydrated]);
 
   function canJump(i: number): boolean {
     if (i === 0) return true;
     if (i === 1) return !!input.lyrics.trim();
-    if (i === 2) return !!concept;
+    if (i === 2) return !!angle;
     return false;
   }
 
   function reset() {
     if (!confirm("Reset everything?")) return;
     setInput(EMPTY);
-    setIdeas(null);
+    setIdea(null);
     setAngle(null);
-    setConcept(null);
+    setShots([]);
+    setSpecs(null);
+    setShotsError(null);
     setStage(0);
   }
 
   function chooseAngle(a: Idea | null) {
     setAngle(a);
-    setConcept(null);
     setStage(2);
+    generateShots(a);
   }
 
   return (
@@ -105,7 +148,7 @@ export default function Home() {
           input={input}
           setInput={setInput}
           onNext={() => {
-            setIdeas(null);
+            setIdea(null);
             setStage(1);
           }}
         />
@@ -113,18 +156,21 @@ export default function Home() {
       {stage === 1 && (
         <IdeasStage
           input={input}
-          ideas={ideas}
-          setIdeas={setIdeas}
+          idea={idea}
+          setIdea={setIdea}
           onChoose={chooseAngle}
           onBack={() => setStage(0)}
         />
       )}
       {stage === 2 && (
-        <ConceptStage
+        <ShotlistStage
           input={input}
           angle={angle}
-          concept={concept}
-          setConcept={setConcept}
+          shots={shots}
+          specs={specs}
+          loading={shotsLoading}
+          error={shotsError}
+          onGenerate={() => generateShots(angle)}
           onBack={() => setStage(1)}
         />
       )}

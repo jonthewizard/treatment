@@ -6,8 +6,13 @@ const CLAUDE_MODEL = "claude-sonnet-4-20250514";
 
 function tryParseJson(raw: string): unknown {
   let s = raw.replace(/```json\s*|\s*```/g, "").trim();
-  const match = s.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-  if (match) s = match[0];
+  const objStart = s.indexOf("{");
+  const arrStart = s.indexOf("[");
+  if (arrStart !== -1 && (objStart === -1 || arrStart < objStart)) {
+    s = s.slice(arrStart);
+  } else if (objStart !== -1) {
+    s = s.slice(objStart);
+  }
 
   try {
     return JSON.parse(s);
@@ -25,6 +30,20 @@ function tryParseJson(raw: string): unknown {
 
   try {
     return JSON.parse(escapeInnerQuotes(repaired));
+  } catch {}
+
+  const truncated = repairTruncatedArray(repaired);
+  if (truncated) {
+    try {
+      return JSON.parse(truncated);
+    } catch {}
+    try {
+      return JSON.parse(escapeInnerQuotes(truncated));
+    } catch {}
+  }
+
+  try {
+    return JSON.parse(repaired);
   } catch (e) {
     const err = e as Error;
     const pos = (err.message.match(/position (\d+)/) || [])[1];
@@ -33,6 +52,52 @@ function tryParseJson(raw: string): unknown {
       : repaired.slice(0, 300);
     throw new Error(`JSON parse failed: ${err.message}\n...${snippet}...`);
   }
+}
+
+function repairTruncatedArray(s: string): string | null {
+  const trimmed = s.trim();
+  if (!trimmed.startsWith("[")) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let lastTopLevelClose = -1;
+
+  for (let i = 0; i < trimmed.length; i++) {
+    const c = trimmed[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (c === "\\") {
+        escape = true;
+        continue;
+      }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "{" || c === "[") {
+      depth++;
+    } else if (c === "}" || c === "]") {
+      depth--;
+      if (c === "}" && depth === 1) {
+        lastTopLevelClose = i;
+      }
+      if (depth === 0 && c === "]") {
+        return trimmed.slice(0, i + 1);
+      }
+    }
+  }
+
+  if (lastTopLevelClose > 0) {
+    return trimmed.slice(0, lastTopLevelClose + 1) + "]";
+  }
+  return null;
 }
 
 function escapeInnerQuotes(s: string): string {
@@ -80,6 +145,40 @@ function escapeInnerQuotes(s: string): string {
   return out;
 }
 
+function parseRetryAfter(header: string | null): number | null {
+  if (!header) return null;
+  const n = parseInt(header, 10);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.min(n, 90);
+}
+
+async function callWithRetry(
+  headers: Record<string, string>,
+  body: Record<string, unknown>
+): Promise<{ res: Response; rawText: string }> {
+  let attempt = 0;
+  const maxAttempts = 2;
+  while (true) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      cache: "no-store",
+      headers,
+      body: JSON.stringify(body),
+    });
+    const rawText = await res.text();
+
+    if (res.status === 429 && attempt < maxAttempts) {
+      const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
+      const waitMs = retryAfter != null ? retryAfter * 1000 : 8000;
+      await new Promise((r) => setTimeout(r, waitMs));
+      attempt++;
+      continue;
+    }
+
+    return { res, rawText };
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { prompt, system, jsonMode } = await req.json();
@@ -94,35 +193,44 @@ export async function POST(req: NextRequest) {
 
     const body: Record<string, unknown> = {
       model: CLAUDE_MODEL,
-      max_tokens: 4000,
+      max_tokens: 16000,
       temperature: 1,
       top_p: 0.95,
       messages: [{ role: "user", content: prompt }],
     };
     if (system) body.system = system;
 
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    });
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    };
 
-    const rawText = await res.text();
+    const { res, rawText } = await callWithRetry(headers, body);
+
     if (!res.ok) {
+      if (res.status === 429) {
+        const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
+        const waitMsg = retryAfter
+          ? ` Try again in about ${retryAfter}s.`
+          : " Try again in a minute.";
+        return NextResponse.json(
+          {
+            error: `Rate limited by Anthropic (input tokens per minute exceeded).${waitMsg}`,
+          },
+          { status: 429 }
+        );
+      }
       return NextResponse.json(
-        { error: `Anthropic API error ${res.status}: ${rawText.slice(0, 200)}` },
+        { error: `Anthropic API error ${res.status}: ${rawText.slice(0, 300)}` },
         { status: 500 }
       );
     }
 
     let data: {
       error?: { message?: string };
-      content?: { type: string; text: string }[];
+      content?: { type: string; text?: string }[];
+      stop_reason?: string;
     };
     try {
       data = JSON.parse(rawText);
@@ -141,13 +249,25 @@ export async function POST(req: NextRequest) {
     }
 
     const text = (data.content ?? [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
+      .filter((b) => b.type === "text" && typeof b.text === "string")
+      .map((b) => b.text as string)
       .join("\n");
 
     if (jsonMode) {
-      const parsed = tryParseJson(text);
-      return NextResponse.json({ result: parsed });
+      try {
+        const parsed = tryParseJson(text);
+        return NextResponse.json({ result: parsed });
+      } catch (e) {
+        const baseMsg = (e as Error).message;
+        const hint =
+          data.stop_reason === "max_tokens"
+            ? " (response was truncated by max_tokens limit)"
+            : "";
+        return NextResponse.json(
+          { error: `${baseMsg}${hint}` },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({ result: text });

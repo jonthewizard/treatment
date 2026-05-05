@@ -11,47 +11,26 @@ export interface Idea {
   pitch: string;
 }
 
-export interface Character {
-  name: string;
-  role: string;
-  description: string;
-  wardrobe: string;
-}
-
-export interface Location {
-  name: string;
-  description: string;
-  lighting: string;
-}
-
-export interface SectionBeat {
-  section: string;
-  visual: string;
-}
-
-export interface Concept {
-  title: string;
-  logline: string;
-  lyricReading: string;
-  synopsis: string;
-  tone: string[];
-  visualStyle: string;
-  palette: string[];
-  characters: Character[];
-  locations: Location[];
-  sectionBeats: SectionBeat[];
-}
-
 export interface Shot {
   shotNumber: number;
   section: string;
   lyricLine: string;
-  shotType: string;
-  cameraMovement: string;
-  description: string;
-  location: string;
-  characters: string[];
   duration: string;
+  name: string;
+  effect: string;
+  visual: string;
+  camera: string;
+  timing: string;
+  transition: string;
+  signature?: boolean;
+}
+
+// One Seedance generation: a contiguous run of shots whose total duration
+// is <= 15s. Each group is rendered as a single concatenated prompt.
+export interface ShotGroup {
+  groupNumber: number;
+  totalSeconds: number;
+  shots: Shot[];
 }
 
 export interface LyricSection {
@@ -59,11 +38,23 @@ export interface LyricSection {
   lines: string[];
 }
 
+// Per-group production specs prepended to that group's Seedance prompt to
+// keep its shots visually consistent within the scene.
+export interface TreatmentSpecs {
+  subject: string;
+  setting: string;
+  mood: string;
+  effects: string;
+  references: string;
+  palette: string;
+}
+
 export interface ProjectState {
   input: SongInput;
-  ideas: Idea[] | null;
+  idea: Idea | null;
   angle: Idea | null;
-  concept: Concept | null;
   shots: Shot[];
+  // One TreatmentSpecs per group, aligned to groupShots(shots) order.
+  specs: TreatmentSpecs[] | null;
   stage: number;
 }
