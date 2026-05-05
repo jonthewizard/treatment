@@ -119,7 +119,7 @@ export default function Home() {
     <div className="min-h-screen bg-black text-zinc-100">
       <header className="border-b border-zinc-800 bg-black print:hidden">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-300">
+          <div className="font-mono text-xs uppercase tracking-widest text-zinc-300">
             Music Video Treatment
           </div>
           <div className="flex items-center gap-6">
@@ -129,7 +129,7 @@ export default function Home() {
                   key={s}
                   onClick={() => canJump(i) && setStage(i)}
                   disabled={!canJump(i)}
-                  className={`font-mono text-[10px] uppercase tracking-wider transition cursor-pointer disabled:cursor-not-allowed ${
+                  className={`font-mono text-xs uppercase tracking-wider transition cursor-pointer disabled:cursor-not-allowed ${
                     i === stage
                       ? "text-zinc-100"
                       : canJump(i)
@@ -143,7 +143,7 @@ export default function Home() {
             </nav>
             <button
               onClick={reset}
-              className="font-mono text-[10px] uppercase tracking-wider text-zinc-600 hover:text-red-400 transition cursor-pointer"
+              className="font-mono text-xs uppercase tracking-wider text-zinc-600 hover:text-red-400 transition cursor-pointer"
             >
               Reset
             </button>

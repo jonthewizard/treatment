@@ -2,7 +2,10 @@
 
 @theme inline {
   --font-serif: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  /* Geist Mono dropped in favor of a single Geist family. The `font-mono`
+     Tailwind utility now resolves to Geist so existing class usages continue
+     to work without a sweeping rename. */
+  --font-mono: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
 body {

@@ -106,7 +106,7 @@ export function ShotlistStage({
 
   const title = shotlistTitle(input, angle);
 
-  if (loading) return <Loader text="building Seedance shot list" />;
+  if (loading) return <Loader text="building shot list" />;
 
   if (error && !shots.length)
     return (
@@ -129,52 +129,45 @@ export function ShotlistStage({
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-6 flex items-center justify-between gap-4">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
-          03 · Shot List · Seedance 2.0
+      {shots.length > 0 && (
+        <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
+          <Btn
+            small
+            onClick={() => setPlayerOpen(true)}
+            disabled={playableVideos.length === 0}
+          >
+            <span className="inline-flex items-center gap-2">
+              <PlayIcon />
+              {playableVideos.length
+                ? `Play All (${playableVideos.length})`
+                : "Play All"}
+            </span>
+          </Btn>
+          <Btn
+            small
+            onClick={() => {
+              const text = copyAll();
+              const blob = new Blob([text], { type: "text/plain" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${input.artist} - ${input.title} - Seedance Prompts.txt`
+                .replace(/[^\w\s.-]/g, "")
+                .replace(/\s+/g, "-");
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <DownloadIcon />
+              Download .txt
+            </span>
+          </Btn>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          {shots.length > 0 && (
-            <>
-              <Btn
-                small
-                onClick={() => setPlayerOpen(true)}
-                disabled={playableVideos.length === 0}
-              >
-                <span className="inline-flex items-center gap-2">
-                  <PlayIcon />
-                  {playableVideos.length
-                    ? `Play All (${playableVideos.length})`
-                    : "Play All"}
-                </span>
-              </Btn>
-              <Btn
-                small
-                onClick={() => {
-                  const text = copyAll();
-                  const blob = new Blob([text], { type: "text/plain" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `${input.artist} - ${input.title} - Seedance Prompts.txt`
-                    .replace(/[^\w\s.-]/g, "")
-                    .replace(/\s+/g, "-");
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                <span className="inline-flex items-center gap-2">
-                  <DownloadIcon />
-                  Download .txt
-                </span>
-              </Btn>
-            </>
-          )}
-        </div>
-      </div>
+      )}
 
       <h1 className="font-serif text-5xl text-zinc-100">{title}</h1>
-      <p className="mt-3 font-mono text-[11px] uppercase tracking-widest text-zinc-500">
+      <p className="mt-3 font-mono text-xs uppercase tracking-widest text-zinc-500">
         {input.artist} · {input.title}
         {input.runtime ? ` · ${input.runtime}` : ""}
       </p>
@@ -208,7 +201,7 @@ export function ShotlistStage({
         {groupsWithPrompts.length === 0 && !loading && (
           <button
             onClick={onGenerate}
-            className="font-mono text-[10px] uppercase tracking-wider text-zinc-600 hover:text-zinc-300 transition cursor-pointer py-2"
+            className="font-mono text-xs uppercase tracking-wider text-zinc-600 hover:text-zinc-300 transition cursor-pointer py-2"
           >
             Generate Shot List
           </button>
@@ -233,7 +226,7 @@ export function ShotlistStage({
                               return next;
                             })
                           }
-                          className="font-mono text-[9px] uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
+                          className="font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
                         >
                           Reset
                         </button>
@@ -245,7 +238,7 @@ export function ShotlistStage({
                           setTimeout(() => setCopiedGroup(null), 1500);
                         });
                       }}
-                      className="font-mono text-[9px] uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
+                      className="font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
                     >
                       {copiedGroup === group.groupNumber ? "Copied" : "Copy"}
                     </button>
@@ -258,7 +251,6 @@ export function ShotlistStage({
                   />
                 </div>
                 <VideoPanel
-                  groupNumber={group.groupNumber}
                   prompt={value}
                   initial={videos[group.groupNumber] ?? null}
                   onPersist={(next) =>
@@ -316,27 +308,21 @@ function EditablePrompt({
       onChange={(e) => onChange(e.target.value)}
       spellCheck={false}
       rows={1}
-      className="block w-full resize-none border-0 bg-transparent p-0 font-mono text-[11px] leading-relaxed text-zinc-200 whitespace-pre-wrap break-words outline-none focus:ring-0"
+      className="block w-full resize-none border-0 bg-transparent p-0 font-mono text-xs leading-relaxed text-zinc-200 whitespace-pre-wrap break-words outline-none focus:ring-0"
     />
   );
 }
 
 interface VideoPanelProps {
-  groupNumber: number;
   prompt: string;
   initial: GroupVideo | null;
   onPersist: (next: GroupVideo | null) => void;
 }
 
-// 320x180 (16:9) frame to the right of each prompt. Generation is fully
+// 480x270 (16:9) frame to the right of each prompt. Generation is fully
 // manual: nothing fires until the user clicks Generate. Polling lives in the
 // hook and is capped at 15 minutes.
-function VideoPanel({
-  groupNumber,
-  prompt,
-  initial,
-  onPersist,
-}: VideoPanelProps) {
+function VideoPanel({ prompt, initial, onPersist }: VideoPanelProps) {
   const { status, videoUrl, error, generate, reset } = useGroupVideo({
     initial,
     onPersist,
@@ -362,14 +348,14 @@ function VideoPanel({
           <button
             onClick={() => generate(prompt)}
             disabled={!prompt.trim()}
-            className="flex h-full w-full items-center justify-center font-mono text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer disabled:cursor-not-allowed disabled:hover:text-zinc-500"
+            className="flex h-full w-full items-center justify-center font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer disabled:cursor-not-allowed disabled:hover:text-zinc-500"
           >
             Generate Video
           </button>
         )}
 
         {busy && (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-wider text-zinc-500">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 font-mono text-xs uppercase tracking-wider text-zinc-500">
             <div className="h-3 w-3 animate-spin rounded-full border border-zinc-600 border-t-zinc-200" />
             <span>
               {status === "starting" ? "queued" : "rendering"}
@@ -378,8 +364,8 @@ function VideoPanel({
         )}
 
         {status === "failed" && (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center font-mono text-[10px] uppercase tracking-wider text-red-400">
-            <span className="break-words normal-case tracking-normal text-[10px]">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center font-mono text-xs uppercase tracking-wider text-red-400">
+            <span className="break-words normal-case tracking-normal text-xs">
               {error || "Generation failed"}
             </span>
             <button
@@ -393,8 +379,8 @@ function VideoPanel({
       </div>
 
       <div className="flex items-center justify-between gap-3">
-        <div className="font-mono text-[9px] uppercase tracking-wider text-zinc-600">
-          group {groupNumber} · 16:9 · 480p · 15s
+        <div className="font-mono text-xs uppercase tracking-wider text-zinc-600">
+          16:9 · 480p · 15s
         </div>
         <div className="flex items-center gap-3">
           {status === "succeeded" && videoUrl && (
@@ -403,13 +389,13 @@ function VideoPanel({
                 href={videoUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="font-mono text-[9px] uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
+                className="font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
               >
                 Open
               </a>
               <button
                 onClick={() => generate(prompt)}
-                className="font-mono text-[9px] uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
+                className="font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
               >
                 Regenerate
               </button>
@@ -418,7 +404,7 @@ function VideoPanel({
           {busy && (
             <button
               onClick={reset}
-              className="font-mono text-[9px] uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
+              className="font-mono text-xs uppercase tracking-wider text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
             >
               Cancel
             </button>
@@ -492,7 +478,7 @@ function PlayerModal({ videos, onClose }: PlayerModalProps) {
       role="dialog"
       aria-modal="true"
     >
-      <div className="flex items-center justify-between border-b border-zinc-900 px-6 py-3 font-mono text-[10px] uppercase tracking-widest text-zinc-400">
+      <div className="flex items-center justify-between border-b border-zinc-900 px-6 py-3 font-mono text-xs uppercase tracking-widest text-zinc-400">
         <div>
           Playing {index + 1} of {videos.length} · group {current.groupNumber}
         </div>

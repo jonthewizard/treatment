@@ -54,7 +54,7 @@ export function IdeasStage({
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
       <div className="mb-6 flex items-center justify-between">
-        <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+        <div className="font-mono text-xs uppercase tracking-widest text-zinc-500">
           02 · Directional Idea
         </div>
         <Btn small onClick={run} disabled={loading}>
@@ -77,10 +77,7 @@ export function IdeasStage({
 
       {idea && !loading && (
         <div className="border border-zinc-800 bg-zinc-900 p-8">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
-            Angle
-          </div>
-          <div className="mt-1 font-serif text-4xl text-zinc-100">
+          <div className="font-serif text-4xl text-zinc-100">
             {idea.angle}
           </div>
           <p className="mt-4 font-serif text-lg leading-snug text-zinc-300">

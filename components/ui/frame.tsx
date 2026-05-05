@@ -70,7 +70,7 @@ export function Frame({
       </svg>
       <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
       {label && (
-        <div className="absolute bottom-1.5 left-2 right-2 font-mono text-[9px] uppercase tracking-wider text-white/90">
+        <div className="absolute bottom-1.5 left-2 right-2 font-mono text-xs uppercase tracking-wider text-white/90">
           {label}
         </div>
       )}

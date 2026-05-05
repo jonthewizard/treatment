@@ -17,7 +17,7 @@ export function Btn({
   small,
   type = "button",
 }: BtnProps) {
-  const size = small ? "px-4 py-2 text-[10px]" : "px-6 py-3 text-xs";
+  const size = small ? "px-4 py-2 text-xs" : "px-6 py-3 text-sm";
   const style = primary
     ? "bg-zinc-100 text-black hover:bg-white disabled:bg-zinc-800 disabled:text-zinc-600"
     : "border border-zinc-700 text-zinc-300 hover:border-zinc-100 hover:text-zinc-100";
