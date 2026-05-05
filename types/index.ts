@@ -49,6 +49,12 @@ export interface TreatmentSpecs {
   palette: string;
 }
 
+// Generated Seedance video for a single shot group, keyed by ShotGroup.groupNumber.
+export interface GroupVideo {
+  url: string;
+  predictionId: string;
+}
+
 export interface ProjectState {
   input: SongInput;
   idea: Idea | null;
@@ -56,5 +62,8 @@ export interface ProjectState {
   shots: Shot[];
   // One TreatmentSpecs per group, aligned to groupShots(shots) order.
   specs: TreatmentSpecs[] | null;
+  // Keyed by ShotGroup.groupNumber. Cleared when shots regenerate since
+  // groupings can shift.
+  videos?: Record<number, GroupVideo> | null;
   stage: number;
 }

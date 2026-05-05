@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { SongInput, Idea, Shot, TreatmentSpecs } from "@/types";
+import type { SongInput, Idea, Shot, TreatmentSpecs, GroupVideo } from "@/types";
 import { saveProject, loadProject } from "@/lib/storage";
 import { genShotlist } from "@/lib/claude";
 import { InputStage } from "@/components/stages/input-stage";
@@ -25,6 +25,7 @@ export default function Home() {
   const [angle, setAngle] = useState<Idea | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
   const [specs, setSpecs] = useState<TreatmentSpecs[] | null>(null);
+  const [videos, setVideos] = useState<Record<number, GroupVideo>>({});
   const [shotsLoading, setShotsLoading] = useState(false);
   const [shotsError, setShotsError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -36,6 +37,9 @@ export default function Home() {
     setShotsError(null);
     setShots([]);
     setSpecs(null);
+    // Group numbering can shift when shots regenerate, so previously
+    // generated videos no longer reliably map to groups. Drop them.
+    setVideos({});
     try {
       const { shots: nextShots, specs: nextSpecs } = await genShotlist(
         input,
@@ -65,12 +69,15 @@ export default function Home() {
       // specs is per-group; older projects may have stored a single object —
       // discard those rather than mis-applying them to group 0.
       const loadedSpecs = Array.isArray(p.specs) ? p.specs : null;
+      const loadedVideos =
+        p.videos && typeof p.videos === "object" ? p.videos : {};
 
       setInput(loadedInput);
       setIdea(loadedIdea);
       setAngle(loadedAngle);
       setShots(loadedShots);
       setSpecs(loadedSpecs);
+      setVideos(loadedVideos);
       // Always land on Input on reload. Saved data is preserved so the user
       // can use the stage nav to jump back to where they left off.
       setStage(0);
@@ -80,8 +87,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    saveProject({ input, idea, angle, shots, specs, stage });
-  }, [input, idea, angle, shots, specs, stage, hydrated]);
+    saveProject({ input, idea, angle, shots, specs, videos, stage });
+  }, [input, idea, angle, shots, specs, videos, stage, hydrated]);
 
   function canJump(i: number): boolean {
     if (i === 0) return true;
@@ -97,6 +104,7 @@ export default function Home() {
     setAngle(null);
     setShots([]);
     setSpecs(null);
+    setVideos({});
     setShotsError(null);
     setStage(0);
   }
@@ -168,6 +176,8 @@ export default function Home() {
           angle={angle}
           shots={shots}
           specs={specs}
+          videos={videos}
+          setVideos={setVideos}
           loading={shotsLoading}
           error={shotsError}
           onGenerate={() => generateShots(angle)}
