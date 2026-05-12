@@ -286,12 +286,14 @@ This is the core difference from multi-shot mode:
 - The group "prompt" field contains the SAME shot prompt prefixed by the cast/location block.
 - The group "imagePrompt" is a SINGLE 16:9 cinematic still depicting that one shot — NOT a multi-panel storyboard.
 
-DURATION GUIDANCE
-- 3–4s: flash beat — a glance, a quick reaction, a single gesture, a hard cut on a chorus accent.
-- 5–7s: standard shot — most action lives here.
-- 8–11s: held shot — a sustained movement, a slow camera move that needs space to land, a longer dialogue beat or environmental reveal.
-- 12–15s: extended shot — a long take, a complex blocking that needs to play out, a reveal that builds.
-- Vary durations across the sequence. Do not flatten to a uniform pace. Use shorter cuts in high-energy beats and longer holds in quiet/reflective beats.
+DURATION GUIDANCE — BIAS SHORT
+The vast majority of shots should be 3–6 seconds. Long holds are reserved for moments that genuinely require them.
+- 3–4s: DEFAULT for fast/kinetic beats, chorus/drop accents, quick reactions, single gestures, hard cuts.
+- 5–6s: DEFAULT for most narrative beats — verse imagery, blocking, environmental detail.
+- 7–9s: only when a specific camera move or piece of choreographed action genuinely needs the time to land. Justify it in the prose itself (a slow push-in, a sustained look, a complex reveal).
+- 10–15s: rare. Reserve for the climactic long take, a major environmental reveal, or a singular sustained moment that anchors the whole piece. Use at most ONE or TWO across the entire song.
+- Target average duration across all shots: ~4–5 seconds. If your average drifts above 6s, you are over-using long holds — cut some down.
+- Vary durations across the sequence. Do not flatten to a uniform pace. Use the shortest duration that lets the shot read clearly.
 
 GROUP "prompt" FIELD — full Kling single-prompt
 Format: "{N}-second short film. {look clause}. CAST:\\n{TAG}: {description}\\n...\\nLOCATIONS:\\n{TAG}: {description}\\n...\\nShot 1: {shot prompt with (Ns)}\\nAll people depicted are invented individuals with no real-world counterpart."

@@ -299,8 +299,19 @@ export function ShotlistStage({
             </div>
           )}
         </div>
-        {referenceTab === "shots" && (
-          <div className="flex min-h-0 flex-1 flex-col">
+        {/*
+          All three tab panes stay mounted at all times — only visibility
+          toggles. This keeps every card's usePrediction hook alive across
+          tab switches so in-flight Replicate generations continue polling
+          in the background instead of being cancelled and lost.
+        */}
+        <div
+          className={
+            referenceTab === "shots"
+              ? "flex min-h-0 flex-1 flex-col"
+              : "hidden"
+          }
+        >
             {groupsWithPrompts.length === 0 && !loading && (
               <button
                 onClick={onGenerate}
@@ -396,9 +407,14 @@ export function ShotlistStage({
               })}
             </div>
           </div>
-        )}
-        {referenceTab === "characters" && characters.length > 0 && (
-            <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12">
+        {characters.length > 0 && (
+            <div
+              className={
+                referenceTab === "characters"
+                  ? "flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12"
+                  : "hidden"
+              }
+            >
               {characters.map((c) => (
                 <CharacterCard
                   key={c.tag}
@@ -431,8 +447,14 @@ export function ShotlistStage({
               ))}
             </div>
           )}
-          {referenceTab === "locations" && locations.length > 0 && (
-            <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12">
+          {locations.length > 0 && (
+            <div
+              className={
+                referenceTab === "locations"
+                  ? "flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12"
+                  : "hidden"
+              }
+            >
               {locations.map((l) => (
                 <LocationCard
                   key={l.tag}

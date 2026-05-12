@@ -10,7 +10,7 @@ const EXAMPLE: SongInput = {
   genre: "Psychedelic Pop",
   runtime: "4:34",
   concept:
-    "Sun-drenched odyssey through golden hour Los Angeles — empty highways, heat shimmer, anamorphic flares. A figure in motion, spinning and running, caught between euphoria and introspection. Warm Kodachrome tones, kinetic handheld camera, always chasing the light.",
+    "A woman is sealed inside a glass elevator that descends forever through impossible architectures — a flooded basilica, a desert at midnight, the inside of a clock, a forest grown sideways. Each floor she passes belongs to a different version of her life she did not choose. She does not react. The elevator does not stop. Outside the glass, weather changes by the second; inside, her reflection is always half a beat behind her.",
   lyrics: `[Verse 1]
 Gone a little far
 Gone a little far this time with something

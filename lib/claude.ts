@@ -166,10 +166,11 @@ export async function genShotlist(
   // cinematographic prompt.
   const pacingBlock =
     mode === "detailed"
-      ? `Pacing reminder — every shot is its own Kling clip, so each one must justify its own duration:
-- EVERY group contains exactly ONE shot. Set the shot's duration anywhere in 3–15 seconds based on what that moment needs.
-- Vary durations across the song — quick flashes (3–4s) for chorus/drop accents, standard (5–7s) for most beats, longer holds (10–15s) for sustained or reflective beats.
-- Each shot prompt should be DENSE: lens choice, camera position and movement, character blocking inside the frame, light direction, composition, and any optical effect.`
+      ? `Pacing reminder — every shot is its own Kling clip, so each one must justify its own duration. BIAS HARD TOWARD SHORT SHOTS:
+- EVERY group contains exactly ONE shot. Allowed range is 3–15 seconds, but the vast majority should be 3–6 seconds.
+- Default to 3–6s. Only go longer (7–9s) when a specific camera move or piece of choreography genuinely needs the time. 10–15s is rare — reserve for the climactic long take only.
+- Target average shot length across the whole song: ~4–5 seconds. If your average drifts above 6s, cut some shots down.
+- Each shot prompt should be DENSE: lens choice, camera position and movement, character blocking inside the frame, light direction, composition, and any optical effect — even at 3–4 seconds.`
       : `Pacing reminder — let the song lead, but bias toward fast cutting:
 - Default to 1-4 second shots.
 - Reserve 5-15s shots for genuinely sustained moments only.
