@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { SongInput, Idea } from "@/types";
+import type { SongInput, Idea, ShotMode } from "@/types";
 import { genIdeas } from "@/lib/claude";
 import { Loader } from "@/components/ui/loader";
 import { Btn } from "@/components/ui/btn";
@@ -10,6 +10,8 @@ interface IdeasStageProps {
   input: SongInput;
   ideas: Idea[];
   setIdeas: (v: Idea[]) => void;
+  shotMode: ShotMode;
+  setShotMode: (m: ShotMode) => void;
   onChoose: (idea: Idea | null) => void;
   onBack: () => void;
 }
@@ -18,6 +20,8 @@ export function IdeasStage({
   input,
   ideas,
   setIdeas,
+  shotMode,
+  setShotMode,
   onChoose,
   onBack,
 }: IdeasStageProps) {
@@ -90,16 +94,54 @@ export function IdeasStage({
       )}
 
       {ideas.length > 0 && !loading && (
-        <div className="flex flex-col gap-4">
-          {ideas.map((idea, i) => (
-            <IdeaCard
-              key={`${idea.angle}-${i}`}
-              idea={idea}
-              canChoose={hasLyrics}
-              onChoose={() => onChoose(idea)}
-            />
-          ))}
-        </div>
+        <>
+          {hasLyrics && (
+            <div className="mb-5 flex flex-col gap-2">
+              <div className="text-sm font-medium text-white/60">
+                Shot list mode
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1">
+                  <button
+                    onClick={() => setShotMode("groups")}
+                    className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
+                      shotMode === "groups"
+                        ? "bg-white text-black shadow-sm"
+                        : "text-white/60 hover:bg-white/5 hover:text-white/90"
+                    }`}
+                  >
+                    Multi-shot groups
+                  </button>
+                  <button
+                    onClick={() => setShotMode("detailed")}
+                    className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
+                      shotMode === "detailed"
+                        ? "bg-white text-black shadow-sm"
+                        : "text-white/60 hover:bg-white/5 hover:text-white/90"
+                    }`}
+                  >
+                    Individual detailed shots
+                  </button>
+                </div>
+                <p className="text-sm text-white/40">
+                  {shotMode === "groups"
+                    ? "Fast-cut groups up to 15 seconds each."
+                    : "Each shot is its own clip, 3–15s, with denser cinematography prompts."}
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="flex flex-col gap-4">
+            {ideas.map((idea, i) => (
+              <IdeaCard
+                key={`${idea.angle}-${i}`}
+                idea={idea}
+                canChoose={hasLyrics}
+                onChoose={() => onChoose(idea)}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       <div className="mt-8 flex items-center justify-between gap-4">

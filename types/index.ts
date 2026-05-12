@@ -12,6 +12,12 @@ export interface Idea {
   pitch: string;
 }
 
+// "groups" — multi-shot groups of up to 15s each (Kling multi_prompt mode).
+//   Optimised for fast cutting across many short shots.
+// "detailed" — each shot is its own single-prompt Kling generation with a
+//   per-shot duration (5–15s) and a much denser, more cinematographic prompt.
+export type ShotMode = "groups" | "detailed";
+
 // Per-shot entry for Kling multi-shot mode (≤6 shots per group)
 export interface ShotEntry {
   // Complete Kling per-shot prompt (look + description + camera + timing + effect)
@@ -72,6 +78,7 @@ export interface ProjectState {
   input: SongInput;
   ideas: Idea[];
   angle: Idea | null;
+  shotMode?: ShotMode | null;
   groups: ShotGroup[];
   look?: string | null;
   characters?: Character[] | null;

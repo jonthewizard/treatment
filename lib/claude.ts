@@ -3,11 +3,16 @@ import type {
   Idea,
   ShotGroup,
   ShotEntry,
+  ShotMode,
   LyricSection,
   Character,
   Location,
 } from "@/types";
-import { IDEAS_SYS, SHOTLIST_SYS } from "@/lib/prompts";
+import {
+  IDEAS_SYS,
+  SHOTLIST_SYS,
+  DETAILED_SHOTLIST_SYS,
+} from "@/lib/prompts";
 import { parseLyrics } from "@/lib/lyrics";
 
 function nonce() {
@@ -149,10 +154,44 @@ export interface ShotlistResult {
 
 export async function genShotlist(
   input: SongInput,
-  angle: Idea | null
+  angle: Idea | null,
+  mode: ShotMode = "groups"
 ): Promise<ShotlistResult> {
   const sections: LyricSection[] = parseLyrics(input.lyrics);
   const totalSeconds = input.runtime ? runtimeToSeconds(input.runtime) : null;
+
+  // The two modes share the cast/location/safety/JSON rules but differ on
+  // pacing. In "groups" mode we fast-cut inside ≤15s bundles. In "detailed"
+  // mode each shot is its own 5–15s Kling generation with a dense
+  // cinematographic prompt.
+  const pacingBlock =
+    mode === "detailed"
+      ? `Pacing reminder — every shot is its own Kling clip, so each one must justify its own duration:
+- EVERY group contains exactly ONE shot. Set the shot's duration anywhere in 3–15 seconds based on what that moment needs.
+- Vary durations across the song — quick flashes (3–4s) for chorus/drop accents, standard (5–7s) for most beats, longer holds (10–15s) for sustained or reflective beats.
+- Each shot prompt should be DENSE: lens choice, camera position and movement, character blocking inside the frame, light direction, composition, and any optical effect.`
+      : `Pacing reminder — let the song lead, but bias toward fast cutting:
+- Default to 1-4 second shots.
+- Reserve 5-15s shots for genuinely sustained moments only.
+- Vary durations — fast cutting in choruses and drops, more held shots in bridges.
+- No single shot may exceed 15 seconds.`;
+
+  const runtimeBlock = totalSeconds
+    ? mode === "detailed"
+      ? `RUNTIME — MANDATORY:
+- The sum of ALL shot durations across ALL groups MUST equal exactly ${totalSeconds} seconds.
+- Each shot's duration must be in the 3–15 second range.
+- Satisfy the total by adjusting the NUMBER OF SHOTS, never by stretching beyond 15s or shrinking below 3s.
+- Verify the total before returning.
+
+`
+      : `RUNTIME — MANDATORY:
+- The sum of ALL shot durations across ALL groups MUST equal exactly ${totalSeconds} seconds.
+- Satisfy this by adjusting the NUMBER OF SHOTS, never by padding individual durations.
+- Verify the total before returning.
+
+`
+    : "";
 
   const prompt = `Artist: ${input.artist}
 Song: ${input.title}
@@ -164,20 +203,7 @@ ${sections.map((s) => `[${s.label}]\n${s.lines.join("\n")}`).join("\n\n")}
 
 Build the shot list for this song now. Tie each shot to a lyric section and a specific lyric line.
 
-${
-    totalSeconds
-      ? `RUNTIME — MANDATORY:
-- The sum of ALL shot durations across ALL groups MUST equal exactly ${totalSeconds} seconds.
-- Satisfy this by adjusting the NUMBER OF SHOTS, never by padding individual durations.
-- Verify the total before returning.
-
-`
-      : ""
-  }Pacing reminder — let the song lead, but bias toward fast cutting:
-- Default to 1-4 second shots.
-- Reserve 5-15s shots for genuinely sustained moments only.
-- Vary durations — fast cutting in choruses and drops, more held shots in bridges.
-- No single shot may exceed 15 seconds.
+${runtimeBlock}${pacingBlock}
 
 Safety reminder — every prompt feeds a downstream content filter.
 - Density beats sparseness: establish setting + atmosphere + framing + production register.
@@ -187,7 +213,8 @@ Safety reminder — every prompt feeds a downstream content filter.
 
 [${nonce()}]`;
 
-  const result = (await callClaude(prompt, SHOTLIST_SYS, true)) as {
+  const system = mode === "detailed" ? DETAILED_SHOTLIST_SYS : SHOTLIST_SYS;
+  const result = (await callClaude(prompt, system, true)) as {
     look?: string;
     characters?: unknown;
     locations?: unknown;

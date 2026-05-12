@@ -5,6 +5,7 @@ import type {
   SongInput,
   Idea,
   ShotGroup,
+  ShotMode,
   GroupVideo,
   GroupImage,
   Character,
@@ -34,6 +35,7 @@ export default function Home() {
   const [input, setInput] = useState<SongInput>(EMPTY);
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [angle, setAngle] = useState<Idea | null>(null);
+  const [shotMode, setShotMode] = useState<ShotMode>("groups");
   const [groups, setGroups] = useState<ShotGroup[]>([]);
   const [look, setLook] = useState<string>("");
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -51,7 +53,7 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
   const runIdRef = useRef(0);
 
-  async function generateShots(forAngle: Idea | null) {
+  async function generateShots(forAngle: Idea | null, mode: ShotMode) {
     const myId = ++runIdRef.current;
     setShotsLoading(true);
     setShotsError(null);
@@ -69,7 +71,7 @@ export default function Home() {
         look: nextLook,
         characters: nextCharacters,
         locations: nextLocations,
-      } = await genShotlist(input, forAngle);
+      } = await genShotlist(input, forAngle, mode);
       if (myId !== runIdRef.current) return;
       setGroups(nextGroups);
       setLook(nextLook);
@@ -98,6 +100,8 @@ export default function Home() {
         ? [legacySingle]
         : [];
       const loadedAngle = p.angle || null;
+      const loadedShotMode: ShotMode =
+        p.shotMode === "detailed" ? "detailed" : "groups";
       const loadedGroups: ShotGroup[] = Array.isArray(p.groups)
         ? p.groups.filter(
             (g): g is ShotGroup =>
@@ -153,6 +157,7 @@ export default function Home() {
       setInput(loadedInput);
       setIdeas(loadedIdeas);
       setAngle(loadedAngle);
+      setShotMode(loadedShotMode);
       setGroups(loadedGroups);
       setLook(loadedGroups.length ? loadedLook : "");
       setCharacters(loadedGroups.length ? loadedCharacters : []);
@@ -174,6 +179,7 @@ export default function Home() {
       input,
       ideas,
       angle,
+      shotMode,
       groups,
       look,
       characters,
@@ -188,6 +194,7 @@ export default function Home() {
     input,
     ideas,
     angle,
+    shotMode,
     groups,
     look,
     characters,
@@ -212,6 +219,7 @@ export default function Home() {
     setInput(EMPTY);
     setIdeas([]);
     setAngle(null);
+    setShotMode("groups");
     setGroups([]);
     setLook("");
     setCharacters([]);
@@ -227,7 +235,7 @@ export default function Home() {
   function chooseAngle(a: Idea | null) {
     setAngle(a);
     setStage(2);
-    generateShots(a);
+    generateShots(a, shotMode);
   }
 
   return (
@@ -291,6 +299,8 @@ export default function Home() {
           input={input}
           ideas={ideas}
           setIdeas={setIdeas}
+          shotMode={shotMode}
+          setShotMode={setShotMode}
           onChoose={chooseAngle}
           onBack={() => setStage(0)}
         />
@@ -313,7 +323,7 @@ export default function Home() {
           setImages={setImages}
           loading={shotsLoading}
           error={shotsError}
-          onGenerate={() => generateShots(angle)}
+          onGenerate={() => generateShots(angle, shotMode)}
           onBack={() => setStage(1)}
         />
       )}

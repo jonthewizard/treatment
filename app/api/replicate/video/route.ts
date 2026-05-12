@@ -7,10 +7,15 @@ export const dynamic = "force-dynamic";
 // https://replicate.com/kwaivgi/kling-v3-omni-video
 const KLING_MODEL = "kwaivgi/kling-v3-omni-video";
 
-// Kling multi-shot: each group's shots are sent as a JSON array in
-// `multi_prompt` (≤6 shots). For groups with >6 shots we fall back to a
-// single prose `prompt` + explicit `duration`. The per-shot duration values
-// are pulled from each Shot's `duration` field (clamped ≥1s).
+// Kling routing:
+// - 2–6 shots: send as JSON array in `multi_prompt`. Top-level `duration` is
+//   the sum of per-shot durations (clamped 3–15s). Each per-shot prompt
+//   string is capped at 512 chars by Kling, so this path is reserved for the
+//   shorter "groups" mode prompts.
+// - 1 shot (detailed mode, or any single-shot group): use single-prompt mode
+//   with the shot's own duration (3–15s). Single `prompt` accepts the much
+//   longer dense cinematographic prose without the 512-char per-shot cap.
+// - 0 shots / >6 shots: fall back to the prose `prompt` + fixed 15s clip.
 // Reference images use the <<<image_N>>> syntax in prompt text — Kling
 // matches the Nth image in the `reference_images` array to each marker.
 const KLING_DEFAULTS = {
@@ -99,18 +104,26 @@ export async function POST(req: NextRequest) {
 
   const input: Record<string, unknown> = { ...KLING_DEFAULTS };
 
-  if (shots && shots.length > 0) {
+  const clampDuration = (n: number) => Math.max(3, Math.min(15, n));
+
+  if (shots && shots.length === 1) {
+    // Detailed-shot mode (or any single-shot group). Use single-prompt mode
+    // so the dense cinematographic prose isn't capped at Kling's 512-char
+    // per-shot limit. Prefer the group prompt (it wraps the shot with the
+    // CAST/LOCATIONS block) but fall back to the shot prompt itself.
+    const groupPrompt = prompt && prompt.trim() ? prompt.trim() : "";
+    input.prompt = groupPrompt || shots[0].prompt;
+    input.duration = clampDuration(shots[0].duration);
+  } else if (shots && shots.length > 1) {
+    // True multi-shot group: use Kling's multi_prompt array.
     input.multi_prompt = JSON.stringify(shots);
-    // Kling requires a top-level duration ≥ every individual shot duration.
-    // Sum the shot durations (group total) and clamp to Kling's 5–15s range.
     const shotTotal = shots.reduce((s, sh) => s + sh.duration, 0);
-    input.duration = Math.max(5, Math.min(15, shotTotal));
-    // Include the fallback prompt as scene context — omit if not provided.
+    input.duration = clampDuration(shotTotal);
     if (prompt && prompt.trim()) {
       input.prompt = prompt.trim();
     }
   } else {
-    // Single-prompt mode: fall back to full 15s clip.
+    // Plain prose prompt with no shot breakdown — default to a 15s clip.
     input.prompt = (prompt as string).trim();
     input.duration = 15;
   }
