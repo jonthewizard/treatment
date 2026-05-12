@@ -127,10 +127,14 @@ export default function Home() {
         p.portraits && typeof p.portraits === "object"
           ? Object.fromEntries(
               Object.entries(p.portraits).filter(
-                ([, v]): v is CharacterPortrait =>
-                  !!v &&
-                  typeof (v as CharacterPortrait).url === "string" &&
-                  typeof (v as CharacterPortrait).predictionId === "string"
+                (entry): entry is [string, CharacterPortrait] => {
+                  const v = entry[1];
+                  return (
+                    !!v &&
+                    typeof (v as CharacterPortrait).url === "string" &&
+                    typeof (v as CharacterPortrait).predictionId === "string"
+                  );
+                }
               )
             )
           : {};
@@ -146,10 +150,14 @@ export default function Home() {
         p.locationPortraits && typeof p.locationPortraits === "object"
           ? Object.fromEntries(
               Object.entries(p.locationPortraits).filter(
-                ([, v]): v is LocationPortrait =>
-                  !!v &&
-                  typeof (v as LocationPortrait).url === "string" &&
-                  typeof (v as LocationPortrait).predictionId === "string"
+                (entry): entry is [string, LocationPortrait] => {
+                  const v = entry[1];
+                  return (
+                    !!v &&
+                    typeof (v as LocationPortrait).url === "string" &&
+                    typeof (v as LocationPortrait).predictionId === "string"
+                  );
+                }
               )
             )
           : {};
