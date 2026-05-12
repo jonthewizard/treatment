@@ -1,7 +1,17 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import type { SongInput, Idea, Shot, TreatmentSpecs, GroupVideo } from "@/types";
+import type {
+  SongInput,
+  Idea,
+  ShotGroup,
+  GroupVideo,
+  GroupImage,
+  Character,
+  CharacterPortrait,
+  Location,
+  LocationPortrait,
+} from "@/types";
 import { saveProject, loadProject } from "@/lib/storage";
 import { genShotlist } from "@/lib/claude";
 import { InputStage } from "@/components/stages/input-stage";
@@ -14,6 +24,7 @@ const EMPTY: SongInput = {
   genre: "",
   runtime: "",
   lyrics: "",
+  concept: "",
 };
 
 const STAGE_LABELS = ["Input", "Ideas", "Shot List"];
@@ -21,11 +32,20 @@ const STAGE_LABELS = ["Input", "Ideas", "Shot List"];
 export default function Home() {
   const [stage, setStage] = useState(0);
   const [input, setInput] = useState<SongInput>(EMPTY);
-  const [idea, setIdea] = useState<Idea | null>(null);
+  const [ideas, setIdeas] = useState<Idea[]>([]);
   const [angle, setAngle] = useState<Idea | null>(null);
-  const [shots, setShots] = useState<Shot[]>([]);
-  const [specs, setSpecs] = useState<TreatmentSpecs[] | null>(null);
+  const [groups, setGroups] = useState<ShotGroup[]>([]);
+  const [look, setLook] = useState<string>("");
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [portraits, setPortraits] = useState<
+    Record<string, CharacterPortrait>
+  >({});
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationPortraits, setLocationPortraits] = useState<
+    Record<string, LocationPortrait>
+  >({});
   const [videos, setVideos] = useState<Record<number, GroupVideo>>({});
+  const [images, setImages] = useState<Record<number, GroupImage>>({});
   const [shotsLoading, setShotsLoading] = useState(false);
   const [shotsError, setShotsError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -35,19 +55,26 @@ export default function Home() {
     const myId = ++runIdRef.current;
     setShotsLoading(true);
     setShotsError(null);
-    setShots([]);
-    setSpecs(null);
-    // Group numbering can shift when shots regenerate, so previously
-    // generated videos no longer reliably map to groups. Drop them.
+    setGroups([]);
+    setLook("");
+    setCharacters([]);
+    setPortraits({});
+    setLocations([]);
+    setLocationPortraits({});
     setVideos({});
+    setImages({});
     try {
-      const { shots: nextShots, specs: nextSpecs } = await genShotlist(
-        input,
-        forAngle
-      );
+      const {
+        groups: nextGroups,
+        look: nextLook,
+        characters: nextCharacters,
+        locations: nextLocations,
+      } = await genShotlist(input, forAngle);
       if (myId !== runIdRef.current) return;
-      setShots(nextShots);
-      setSpecs(nextSpecs);
+      setGroups(nextGroups);
+      setLook(nextLook);
+      setCharacters(nextCharacters);
+      setLocations(nextLocations);
     } catch (e) {
       if (myId !== runIdRef.current) return;
       setShotsError((e as Error).message);
@@ -59,27 +86,83 @@ export default function Home() {
   useEffect(() => {
     const p = loadProject();
     if (p) {
-      const loadedInput = p.input || EMPTY;
-      // Back-compat: older projects stored `ideas: Idea[]`; pick the first.
-      const legacy = (p as unknown as { ideas?: Idea[] }).ideas;
-      const loadedIdea =
-        p.idea ?? (Array.isArray(legacy) ? legacy[0] ?? null : null);
+      const loadedInput: SongInput = { ...EMPTY, ...(p.input ?? {}) };
+      const legacySingle = (p as unknown as { idea?: Idea | null }).idea;
+      const isValidIdea = (v: unknown): v is Idea =>
+        !!v &&
+        typeof (v as Idea).angle === "string" &&
+        typeof (v as Idea).pitch === "string";
+      const loadedIdeas: Idea[] = Array.isArray(p.ideas)
+        ? p.ideas.filter(isValidIdea)
+        : isValidIdea(legacySingle)
+        ? [legacySingle]
+        : [];
       const loadedAngle = p.angle || null;
-      const loadedShots = Array.isArray(p.shots) ? p.shots : [];
-      // specs is per-group; older projects may have stored a single object —
-      // discard those rather than mis-applying them to group 0.
-      const loadedSpecs = Array.isArray(p.specs) ? p.specs : null;
+      const loadedGroups: ShotGroup[] = Array.isArray(p.groups)
+        ? p.groups.filter(
+            (g): g is ShotGroup =>
+              !!g &&
+              typeof (g as ShotGroup).prompt === "string" &&
+              Array.isArray((g as ShotGroup).shots)
+          )
+        : [];
       const loadedVideos =
         p.videos && typeof p.videos === "object" ? p.videos : {};
+      const loadedImages =
+        p.images && typeof p.images === "object" ? p.images : {};
+      const loadedLook = typeof p.look === "string" ? p.look : "";
+      const loadedCharacters: Character[] = Array.isArray(p.characters)
+        ? p.characters.filter(
+            (c): c is Character =>
+              !!c &&
+              typeof (c as Character).tag === "string" &&
+              typeof (c as Character).description === "string"
+          )
+        : [];
+      const loadedPortraits: Record<string, CharacterPortrait> =
+        p.portraits && typeof p.portraits === "object"
+          ? Object.fromEntries(
+              Object.entries(p.portraits).filter(
+                ([, v]): v is CharacterPortrait =>
+                  !!v &&
+                  typeof (v as CharacterPortrait).url === "string" &&
+                  typeof (v as CharacterPortrait).predictionId === "string"
+              )
+            )
+          : {};
+      const loadedLocations: Location[] = Array.isArray(p.locations)
+        ? p.locations.filter(
+            (l): l is Location =>
+              !!l &&
+              typeof (l as Location).tag === "string" &&
+              typeof (l as Location).description === "string"
+          )
+        : [];
+      const loadedLocationPortraits: Record<string, LocationPortrait> =
+        p.locationPortraits && typeof p.locationPortraits === "object"
+          ? Object.fromEntries(
+              Object.entries(p.locationPortraits).filter(
+                ([, v]): v is LocationPortrait =>
+                  !!v &&
+                  typeof (v as LocationPortrait).url === "string" &&
+                  typeof (v as LocationPortrait).predictionId === "string"
+              )
+            )
+          : {};
 
       setInput(loadedInput);
-      setIdea(loadedIdea);
+      setIdeas(loadedIdeas);
       setAngle(loadedAngle);
-      setShots(loadedShots);
-      setSpecs(loadedSpecs);
-      setVideos(loadedVideos);
-      // Always land on Input on reload. Saved data is preserved so the user
-      // can use the stage nav to jump back to where they left off.
+      setGroups(loadedGroups);
+      setLook(loadedGroups.length ? loadedLook : "");
+      setCharacters(loadedGroups.length ? loadedCharacters : []);
+      setPortraits(loadedGroups.length ? loadedPortraits : {});
+      setLocations(loadedGroups.length ? loadedLocations : []);
+      setLocationPortraits(
+        loadedGroups.length ? loadedLocationPortraits : {}
+      );
+      setVideos(loadedGroups.length ? loadedVideos : {});
+      setImages(loadedGroups.length ? loadedImages : {});
       setStage(0);
     }
     setHydrated(true);
@@ -87,24 +170,56 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    saveProject({ input, idea, angle, shots, specs, videos, stage });
-  }, [input, idea, angle, shots, specs, videos, stage, hydrated]);
+    saveProject({
+      input,
+      ideas,
+      angle,
+      groups,
+      look,
+      characters,
+      portraits,
+      locations,
+      locationPortraits,
+      videos,
+      images,
+      stage,
+    });
+  }, [
+    input,
+    ideas,
+    angle,
+    groups,
+    look,
+    characters,
+    portraits,
+    locations,
+    locationPortraits,
+    videos,
+    images,
+    stage,
+    hydrated,
+  ]);
 
   function canJump(i: number): boolean {
     if (i === 0) return true;
-    if (i === 1) return !!input.lyrics.trim();
-    if (i === 2) return !!angle;
+    if (i === 1) return !!input.lyrics.trim() || !!input.concept.trim();
+    if (i === 2) return !!angle && !!input.lyrics.trim();
     return false;
   }
 
   function reset() {
     if (!confirm("Reset everything?")) return;
     setInput(EMPTY);
-    setIdea(null);
+    setIdeas([]);
     setAngle(null);
-    setShots([]);
-    setSpecs(null);
+    setGroups([]);
+    setLook("");
+    setCharacters([]);
+    setPortraits({});
+    setLocations([]);
+    setLocationPortraits({});
     setVideos({});
+    setImages({});
     setShotsError(null);
     setStage(0);
   }
@@ -116,34 +231,34 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100">
-      <header className="border-b border-zinc-800 bg-black print:hidden">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <div className="font-mono text-xs uppercase tracking-widest text-zinc-300">
-            Music Video Treatment
+    <div className="min-h-screen text-white selection:bg-white/20" style={{ background: "linear-gradient(179.59deg, #1e1e1e 1.64%, #1a1828 92.37%)" }}>
+      <header className="print:hidden">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+          <div className="font-serif text-sm text-white/40 tracking-wide">
+            Treatment Studio
           </div>
           <div className="flex items-center gap-6">
-            <nav className="flex gap-4">
+            <nav className="flex gap-5">
               {STAGE_LABELS.map((s, i) => (
                 <button
                   key={s}
                   onClick={() => canJump(i) && setStage(i)}
                   disabled={!canJump(i)}
-                  className={`font-mono text-xs uppercase tracking-wider transition cursor-pointer disabled:cursor-not-allowed ${
+                  className={`font-serif text-base transition cursor-pointer disabled:cursor-not-allowed ${
                     i === stage
-                      ? "text-zinc-100"
+                      ? "text-white"
                       : canJump(i)
-                      ? "text-zinc-600 hover:text-zinc-300"
-                      : "text-zinc-700"
+                      ? "text-white/40 hover:text-white/70"
+                      : "text-white/20"
                   }`}
                 >
-                  0{i + 1} {s}
+                  {s}
                 </button>
               ))}
             </nav>
             <button
               onClick={reset}
-              className="font-mono text-xs uppercase tracking-wider text-zinc-600 hover:text-red-400 transition cursor-pointer"
+              className="font-sans text-xs text-white/30 hover:text-white/60 transition cursor-pointer"
             >
               Reset
             </button>
@@ -156,7 +271,7 @@ export default function Home() {
           input={input}
           setInput={setInput}
           onNext={() => {
-            setIdea(null);
+            setIdeas([]);
             setStage(1);
           }}
         />
@@ -164,8 +279,8 @@ export default function Home() {
       {stage === 1 && (
         <IdeasStage
           input={input}
-          idea={idea}
-          setIdea={setIdea}
+          ideas={ideas}
+          setIdeas={setIdeas}
           onChoose={chooseAngle}
           onBack={() => setStage(0)}
         />
@@ -174,10 +289,18 @@ export default function Home() {
         <ShotlistStage
           input={input}
           angle={angle}
-          shots={shots}
-          specs={specs}
+          groups={groups}
+          look={look}
+          characters={characters}
+          portraits={portraits}
+          setPortraits={setPortraits}
+          locations={locations}
+          locationPortraits={locationPortraits}
+          setLocationPortraits={setLocationPortraits}
           videos={videos}
           setVideos={setVideos}
+          images={images}
+          setImages={setImages}
           loading={shotsLoading}
           error={shotsError}
           onGenerate={() => generateShots(angle)}

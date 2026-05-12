@@ -2,16 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const SEEDANCE_MODEL = "bytedance/seedance-2.0";
+// Kling Video 3.0 Omni — unified multimodal video model with reference-image
+// support and native multi-shot control.
+// https://replicate.com/kwaivgi/kling-v3-omni-video
+const KLING_MODEL = "kwaivgi/kling-v3-omni-video";
 
-// Locked Seedance 2.0 inputs for treatment scratch videos. Exported via the
-// request shape rather than configured per call so the UI can't drift.
-const SEEDANCE_DEFAULTS = {
-  duration: 15,
-  resolution: "480p",
+// Kling multi-shot: each group's shots are sent as a JSON array in
+// `multi_prompt` (≤6 shots). For groups with >6 shots we fall back to a
+// single prose `prompt` + explicit `duration`. The per-shot duration values
+// are pulled from each Shot's `duration` field (clamped ≥1s).
+// Reference images use the <<<image_N>>> syntax in prompt text — Kling
+// matches the Nth image in the `reference_images` array to each marker.
+const KLING_DEFAULTS = {
+  mode: "standard", // 720p — sufficient for treatment previews
   aspect_ratio: "16:9",
   generate_audio: false,
 } as const;
+
+interface KlingShot {
+  prompt: string;
+  duration: number;
+}
 
 interface ReplicatePrediction {
   id: string;
@@ -44,35 +55,81 @@ export async function POST(req: NextRequest) {
   }
 
   let prompt: string | undefined;
+  let shots: KlingShot[] | undefined;
+  let startImage: string | undefined;
+  let referenceImages: string[] = [];
+
   try {
     const body = await req.json();
     prompt = body?.prompt;
+    if (Array.isArray(body?.shots)) {
+      shots = (body.shots as unknown[])
+        .filter(
+          (s): s is KlingShot =>
+            s !== null &&
+            typeof s === "object" &&
+            typeof (s as KlingShot).prompt === "string" &&
+            typeof (s as KlingShot).duration === "number"
+        )
+        .slice(0, 6); // Kling multi-shot cap
+    }
+    if (typeof body?.start_image === "string" && body.start_image.trim()) {
+      startImage = body.start_image.trim();
+    }
+    if (Array.isArray(body?.reference_images)) {
+      referenceImages = (body.reference_images as unknown[])
+        .filter((u): u is string => typeof u === "string" && !!u.trim())
+        .map((u) => u.trim())
+        .slice(0, 7); // Kling reference_images cap
+    }
   } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  // At least one of prompt or shots is required
+  if (
+    (!prompt || typeof prompt !== "string" || !prompt.trim()) &&
+    (!shots || shots.length === 0)
+  ) {
     return NextResponse.json(
-      { error: "Invalid JSON body" },
+      { error: "prompt or shots is required" },
       { status: 400 }
     );
   }
 
-  if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
-    return NextResponse.json(
-      { error: "prompt is required" },
-      { status: 400 }
-    );
+  const input: Record<string, unknown> = { ...KLING_DEFAULTS };
+
+  if (shots && shots.length > 0) {
+    input.multi_prompt = JSON.stringify(shots);
+    // Kling requires a top-level duration ≥ every individual shot duration.
+    // Sum the shot durations (group total) and clamp to Kling's 5–15s range.
+    const shotTotal = shots.reduce((s, sh) => s + sh.duration, 0);
+    input.duration = Math.max(5, Math.min(15, shotTotal));
+    // Include the fallback prompt as scene context — omit if not provided.
+    if (prompt && prompt.trim()) {
+      input.prompt = prompt.trim();
+    }
+  } else {
+    // Single-prompt mode: fall back to full 15s clip.
+    input.prompt = (prompt as string).trim();
+    input.duration = 15;
+  }
+
+  if (referenceImages.length > 0) {
+    input.reference_images = referenceImages;
+  }
+
+  if (startImage) {
+    input.start_image = startImage;
   }
 
   const res = await fetch(
-    `https://api.replicate.com/v1/models/${SEEDANCE_MODEL}/predictions`,
+    `https://api.replicate.com/v1/models/${KLING_MODEL}/predictions`,
     {
       method: "POST",
       cache: "no-store",
       headers: authHeaders(token),
-      body: JSON.stringify({
-        input: {
-          prompt,
-          ...SEEDANCE_DEFAULTS,
-        },
-      }),
+      body: JSON.stringify({ input }),
     }
   );
 

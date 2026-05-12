@@ -5,61 +5,96 @@ import { Field } from "@/components/ui/field";
 import { Btn } from "@/components/ui/btn";
 
 const EXAMPLE: SongInput = {
-  artist: "Radiohead",
-  title: "Creep",
-  genre: "Alternative Rock",
-  runtime: "3:56",
+  artist: "Tame Impala",
+  title: "Borderline",
+  genre: "Psychedelic Pop",
+  runtime: "4:34",
+  concept:
+    "Sun-drenched odyssey through golden hour Los Angeles — empty highways, heat shimmer, anamorphic flares. A figure in motion, spinning and running, caught between euphoria and introspection. Warm Kodachrome tones, kinetic handheld camera, always chasing the light.",
   lyrics: `[Verse 1]
-When you were here before
-Couldn't look you in the eye
-You're just like an angel
-Your skin makes me cry
-You float like a feather
-In a beautiful world
-I wish I was special
-You're so fuckin' special
+Gone a little far
+Gone a little far this time with something
+How was I to know?
+How was I to know this high came rushing?
 
 [Chorus]
-But I'm a creep
-I'm a weirdo
-What the hell am I doin' here?
-I don't belong here
+We're on the borderline
+Dangerously fine and unforgiving
+Possibly a sign
+I'm gonna have the strangest night on Sunday
 
 [Verse 2]
-I don't care if it hurts
-I wanna have control
-I want a perfect body
-I want a perfect soul
-I want you to notice
-When I'm not around
-You're so fuckin' special
-I wish I was special
+Here I go
+Quite a show for a loner in L.A.​
+I wonder how I managed to end up in this place
+Where I couldn't get away
 
 [Chorus]
-But I'm a creep
-I'm a weirdo
-What the hell am I doin' here?
-I don't belong here
-Oh-oh, oh-oh
+We're on the borderline (Ooh)
+Caught between the tides of pain and rapture
+Then I saw the time
+Watched it speedin' by like a train
+Like a train
 
-[Bridge]
-She's runnin' out the door
-She's runnin' out
-She run, run, run, run
-Run
+[Post-Chorus]
+Will I be known and loved?
+Is there one that I trust?
+Starting to sober up
+Has it been long enough?
+Will I be known and loved?
+Little closer, close enough
+I'm a loser, loosen up
+Setting free, must be tough
+Will I be known and loved?
+Is there one that I trust?
+Starting to sober up
+Has it been long enough?
+Will I be so in love?
+Any closer? Close enough
+Shout out to what is done
+R.I.P., here comes the sun
+(Here comes the sun)
+See Tame Impala Live
+Get tickets as low as $101
+
+You might also like
+Family Matters
+Drake
+The Tortured Poets Department
+Taylor Swift
+6:16 in LA
+Kendrick Lamar
 
 [Verse 3]
-Whatever makes you happy
-Whatever you want
-You're so fuckin' special
-I wish I was special
+Gone a little far
+Gone a little far this time with something
+Rudi said it's fine
+They used to do this all the time in college (If you and I get comfortable)
 
 [Chorus]
-But I'm a creep
-I'm a weirdo
-What the hell am I doin' here?
-I don't belong here
-I don't belong here`,
+And we're on the borderline (Ooh)
+Caught between the tides of pain and rapture
+Then I saw the time
+Watched it speedin' by like a train
+
+[Post-Chorus]
+Will I be known and loved?
+Is there one that I trust?
+Starting to sober up
+Has it been long enough?
+Will I be known and loved?
+Little closer, close enough
+I'm a loser, loosen up
+Setting free, must be tough
+Will I be known and loved?
+Is there one that I trust?
+Starting to sober up
+Has it been long enough?
+Will I be so in love?
+Any closer? Close enough
+Shout out to what is done
+R.I.P., here comes the sun
+(Here comes the sun)`,
 };
 
 interface InputStageProps {
@@ -69,22 +104,28 @@ interface InputStageProps {
 }
 
 export function InputStage({ input, setInput, onNext }: InputStageProps) {
-  const ready = input.lyrics.trim().length > 20;
+  // Idea generation only needs SOMETHING to anchor on — lyrics, a concept,
+  // or both. The shotlist stage still requires lyrics to map shots to
+  // sections; that gate is enforced separately when leaving Ideas.
+  const hasLyrics = input.lyrics.trim().length > 20;
+  const hasConcept = input.concept.trim().length > 20;
+  const ready = hasLyrics || hasConcept;
+  const conceptOnly = hasConcept && !hasLyrics;
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="mx-auto max-w-3xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
-        <div className="font-mono text-sm uppercase tracking-widest text-zinc-500">
-          01 · Input
+        <div className="text-xs font-medium text-white/50">
+          Song details
         </div>
         <button
           onClick={() => setInput(EXAMPLE)}
-          className="font-mono text-sm uppercase tracking-wider text-zinc-600 hover:text-zinc-300 transition cursor-pointer"
+          className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
         >
           Try an example
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <Field
           label="Artist"
           value={input.artist}
@@ -98,7 +139,7 @@ export function InputStage({ input, setInput, onNext }: InputStageProps) {
           placeholder="optional"
         />
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-4">
+      <div className="mt-3 grid grid-cols-2 gap-3">
         <Field
           label="Genre"
           value={input.genre}
@@ -112,26 +153,46 @@ export function InputStage({ input, setInput, onNext }: InputStageProps) {
           placeholder="optional"
         />
       </div>
-      <div className="mt-6">
-        <div className="mb-1.5 flex items-baseline justify-between">
-          <div className="font-mono text-sm uppercase tracking-wider text-zinc-500">
+      <div className="mt-5">
+        <div className="mb-2 flex items-baseline justify-between">
+          <div className="text-xs font-medium text-white/60">
             Lyrics
           </div>
-          <div className="font-mono text-sm text-zinc-600">
+          <div className="text-xs text-white/30">
             Use [Verse 1], [Chorus] to label sections
           </div>
         </div>
         <textarea
           value={input.lyrics}
           onChange={(e) => setInput({ ...input, lyrics: e.target.value })}
-          placeholder={
-            "[Verse 1]\nPaste full lyrics\n\n[Chorus]\nWith section labels"
-          }
+          placeholder={"[Verse 1]\nPaste full lyrics\n\n[Chorus]\nWith section labels"}
           rows={18}
-          className="w-full resize-none border border-zinc-800 bg-zinc-900 p-4 font-mono text-base leading-relaxed text-zinc-100 outline-none focus:border-zinc-100 transition-colors"
+          className="w-full resize-none bg-white/[0.13] border border-white/10 rounded-2xl p-4 text-sm leading-relaxed text-white placeholder:text-white/30 outline-none focus:border-white/30 transition-colors shadow-[0px_4px_24px_rgba(0,0,0,0.08)]"
         />
       </div>
-      <div className="mt-6 flex justify-end">
+      <div className="mt-5">
+        <div className="mb-2 flex items-baseline justify-between">
+          <div className="text-xs font-medium text-white/60">
+            Concept
+          </div>
+          <div className="text-xs text-white/30">
+            Optional — your direction for the video
+          </div>
+        </div>
+        <textarea
+          value={input.concept}
+          onChange={(e) => setInput({ ...input, concept: e.target.value })}
+          placeholder="e.g. a slow-motion descent through neon-lit corridors, ending in a single static portrait"
+          rows={4}
+          className="w-full resize-none bg-white/[0.13] border border-white/10 rounded-2xl p-4 text-sm leading-relaxed text-white placeholder:text-white/30 outline-none focus:border-white/30 transition-colors shadow-[0px_4px_24px_rgba(0,0,0,0.08)]"
+        />
+      </div>
+      <div className="mt-6 flex items-center justify-end gap-4">
+        {conceptOnly && (
+          <div className="text-xs text-white/40">
+            No lyrics — ideas will be built from the concept. Lyrics are required for the shot list.
+          </div>
+        )}
         <Btn primary disabled={!ready} onClick={onNext}>
           Generate Ideas →
         </Btn>

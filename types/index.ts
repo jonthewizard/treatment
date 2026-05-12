@@ -4,6 +4,7 @@ export interface SongInput {
   genre: string;
   runtime: string;
   lyrics: string;
+  concept: string;
 }
 
 export interface Idea {
@@ -11,26 +12,25 @@ export interface Idea {
   pitch: string;
 }
 
-export interface Shot {
-  shotNumber: number;
-  section: string;
-  lyricLine: string;
-  duration: string;
-  name: string;
-  effect: string;
-  visual: string;
-  camera: string;
-  timing: string;
-  transition: string;
-  signature?: boolean;
+// Per-shot entry for Kling multi-shot mode (≤6 shots per group)
+export interface ShotEntry {
+  // Complete Kling per-shot prompt (look + description + camera + timing + effect)
+  prompt: string;
+  duration: string; // "Ns"
 }
 
-// One Seedance generation: a contiguous run of shots whose total duration
-// is <= 15s. Each group is rendered as a single concatenated prompt.
+// One Kling generation: a ≤15s bundle of shots with ready-to-use prompts
+// generated directly by the LLM — no reformatting applied.
 export interface ShotGroup {
   groupNumber: number;
   totalSeconds: number;
-  shots: Shot[];
+  // Complete Kling single-prompt. Character tags are plain ALL-CAPS tokens;
+  // <<<image_N>>> reference markers are injected at runtime when portraits exist.
+  prompt: string;
+  // Still image prompt for Nano Banana 2 first-frame reference.
+  imagePrompt: string;
+  // Per-shot prompts for Kling multi-shot mode (used when ≤6 shots).
+  shots: ShotEntry[];
 }
 
 export interface LyricSection {
@@ -38,32 +38,47 @@ export interface LyricSection {
   lines: string[];
 }
 
-// Per-group production specs prepended to that group's Seedance prompt to
-// keep its shots visually consistent within the scene.
-export interface TreatmentSpecs {
-  subject: string;
-  setting: string;
-  mood: string;
-  effects: string;
-  references: string;
-  palette: string;
+export interface GroupVideo {
+  url: string;
+  predictionId: string;
 }
 
-// Generated Seedance video for a single shot group, keyed by ShotGroup.groupNumber.
-export interface GroupVideo {
+export interface GroupImage {
+  url: string;
+  predictionId: string;
+}
+
+export interface Character {
+  tag: string;
+  description: string;
+}
+
+export interface CharacterPortrait {
+  url: string;
+  predictionId: string;
+}
+
+export interface Location {
+  tag: string;
+  description: string;
+}
+
+export interface LocationPortrait {
   url: string;
   predictionId: string;
 }
 
 export interface ProjectState {
   input: SongInput;
-  idea: Idea | null;
+  ideas: Idea[];
   angle: Idea | null;
-  shots: Shot[];
-  // One TreatmentSpecs per group, aligned to groupShots(shots) order.
-  specs: TreatmentSpecs[] | null;
-  // Keyed by ShotGroup.groupNumber. Cleared when shots regenerate since
-  // groupings can shift.
+  groups: ShotGroup[];
+  look?: string | null;
+  characters?: Character[] | null;
+  portraits?: Record<string, CharacterPortrait> | null;
+  locations?: Location[] | null;
+  locationPortraits?: Record<string, LocationPortrait> | null;
   videos?: Record<number, GroupVideo> | null;
+  images?: Record<number, GroupImage> | null;
   stage: number;
 }

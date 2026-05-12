@@ -17,17 +17,17 @@ export function Btn({
   small,
   type = "button",
 }: BtnProps) {
-  const size = small ? "px-4 py-2 text-xs" : "px-6 py-3 text-sm";
+  const size = small ? "px-4 py-2 text-xs" : "px-5 py-2.5 text-sm";
   const style = primary
-    ? "bg-zinc-100 text-black hover:bg-white disabled:bg-zinc-800 disabled:text-zinc-600"
-    : "border border-zinc-700 text-zinc-300 hover:border-zinc-100 hover:text-zinc-100";
+    ? "bg-white/90 text-black hover:bg-white disabled:bg-white/20 disabled:text-white/30"
+    : "bg-white/10 border border-white/10 text-white/80 hover:bg-white/20 hover:text-white";
 
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`${size} ${style} font-mono uppercase tracking-wider transition cursor-pointer disabled:cursor-not-allowed`}
+      className={`${size} ${style} font-sans rounded-2xl transition cursor-pointer disabled:cursor-not-allowed`}
     >
       {children}
     </button>
