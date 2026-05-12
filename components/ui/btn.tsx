@@ -17,7 +17,9 @@ export function Btn({
   small,
   type = "button",
 }: BtnProps) {
-  const size = small ? "px-4 py-2 text-xs" : "px-5 py-2.5 text-sm";
+  const size = small ? "px-4 py-1 text-sm" : "px-5 py-2.5 text-base";
+  const radius = small ? "rounded-full" : "rounded-2xl";
+  const weight = small ? "font-medium" : "font-sans";
   const style = primary
     ? "bg-white/90 text-black hover:bg-white disabled:bg-white/20 disabled:text-white/30"
     : "bg-white/10 border border-white/10 text-white/80 hover:bg-white/20 hover:text-white";
@@ -27,7 +29,7 @@ export function Btn({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`${size} ${style} font-sans rounded-2xl transition cursor-pointer disabled:cursor-not-allowed`}
+      className={`${size} ${radius} ${weight} ${style} transition cursor-pointer disabled:cursor-not-allowed`}
     >
       {children}
     </button>

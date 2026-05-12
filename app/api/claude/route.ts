@@ -191,9 +191,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Sonnet 4 supports up to 64k output tokens. Shotlist responses are
+    // verbose by design (each shot's prose appears in three places: the
+    // group prompt, the imagePrompt panels, and the shots[] array) so a
+    // long song can easily exceed the older 16k cap and truncate mid-JSON.
     const body: Record<string, unknown> = {
       model: CLAUDE_MODEL,
-      max_tokens: 16000,
+      max_tokens: 64000,
       temperature: 1,
       top_p: 0.95,
       messages: [{ role: "user", content: prompt }],

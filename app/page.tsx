@@ -27,7 +27,7 @@ const EMPTY: SongInput = {
   concept: "",
 };
 
-const STAGE_LABELS = ["Input", "Ideas", "Shot List"];
+const STAGE_LABELS = ["Song Details", "Treatments", "Storyboard"];
 
 export default function Home() {
   const [stage, setStage] = useState(0);
@@ -231,38 +231,48 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen text-white selection:bg-white/20" style={{ background: "linear-gradient(179.59deg, #1e1e1e 1.64%, #1a1828 92.37%)" }}>
+    <div className="min-h-screen text-white selection:bg-white/20" style={{ background: "linear-gradient(179.59deg, #1e1e1e 1.64%, #1a1a24 92.37%)" }}>
       <header className="print:hidden">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="font-serif text-sm text-white/40 tracking-wide">
+        <div className="flex items-center gap-6 px-12 py-4">
+          <div className="shrink-0 font-serif text-sm tracking-wide text-white/40">
             Treatment Studio
           </div>
-          <div className="flex items-center gap-6">
-            <nav className="flex gap-5">
-              {STAGE_LABELS.map((s, i) => (
-                <button
-                  key={s}
-                  onClick={() => canJump(i) && setStage(i)}
-                  disabled={!canJump(i)}
-                  className={`font-serif text-base transition cursor-pointer disabled:cursor-not-allowed ${
-                    i === stage
-                      ? "text-white"
-                      : canJump(i)
-                      ? "text-white/40 hover:text-white/70"
-                      : "text-white/20"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </nav>
-            <button
-              onClick={reset}
-              className="font-sans text-xs text-white/30 hover:text-white/60 transition cursor-pointer"
+          <div className="flex flex-1 justify-center">
+            <nav
+              role="tablist"
+              aria-label="Treatment stages"
+              className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1"
             >
-              Reset
-            </button>
+              {STAGE_LABELS.map((s, i) => {
+                const active = i === stage;
+                const jumpable = canJump(i);
+                return (
+                  <button
+                    key={s}
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => jumpable && setStage(i)}
+                    disabled={!jumpable}
+                    className={`cursor-pointer rounded-full px-5 py-1.5 font-serif text-base transition disabled:cursor-not-allowed ${
+                      active
+                        ? "bg-white text-black shadow-sm"
+                        : jumpable
+                        ? "text-white/60 hover:bg-white/5 hover:text-white/90"
+                        : "text-white/20"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
+            </nav>
           </div>
+          <button
+            onClick={reset}
+            className="shrink-0 cursor-pointer font-sans text-sm text-white/30 transition hover:text-white/60"
+          >
+            Reset
+          </button>
         </div>
       </header>
 

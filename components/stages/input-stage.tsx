@@ -156,23 +156,6 @@ export function InputStage({ input, setInput, onNext }: InputStageProps) {
       <div className="mt-5">
         <div className="mb-2 flex items-baseline justify-between">
           <div className="text-xs font-medium text-white/60">
-            Lyrics
-          </div>
-          <div className="text-xs text-white/30">
-            Use [Verse 1], [Chorus] to label sections
-          </div>
-        </div>
-        <textarea
-          value={input.lyrics}
-          onChange={(e) => setInput({ ...input, lyrics: e.target.value })}
-          placeholder={"[Verse 1]\nPaste full lyrics\n\n[Chorus]\nWith section labels"}
-          rows={18}
-          className="w-full resize-none bg-white/[0.13] border border-white/10 rounded-2xl p-4 text-sm leading-relaxed text-white placeholder:text-white/30 outline-none focus:border-white/30 transition-colors shadow-[0px_4px_24px_rgba(0,0,0,0.08)]"
-        />
-      </div>
-      <div className="mt-5">
-        <div className="mb-2 flex items-baseline justify-between">
-          <div className="text-xs font-medium text-white/60">
             Concept
           </div>
           <div className="text-xs text-white/30">
@@ -184,6 +167,23 @@ export function InputStage({ input, setInput, onNext }: InputStageProps) {
           onChange={(e) => setInput({ ...input, concept: e.target.value })}
           placeholder="e.g. a slow-motion descent through neon-lit corridors, ending in a single static portrait"
           rows={4}
+          className="w-full resize-none bg-white/[0.13] border border-white/10 rounded-2xl p-4 text-sm leading-relaxed text-white placeholder:text-white/30 outline-none focus:border-white/30 transition-colors shadow-[0px_4px_24px_rgba(0,0,0,0.08)]"
+        />
+      </div>
+      <div className="mt-5">
+        <div className="mb-2 flex items-baseline justify-between">
+          <div className="text-xs font-medium text-white/60">
+            Lyrics
+          </div>
+          <div className="text-xs text-white/30">
+            Use [Verse 1], [Chorus] to label sections
+          </div>
+        </div>
+        <textarea
+          value={input.lyrics}
+          onChange={(e) => setInput({ ...input, lyrics: e.target.value })}
+          placeholder={"[Verse 1]\nPaste full lyrics\n\n[Chorus]\nWith section labels"}
+          rows={18}
           className="w-full resize-none bg-white/[0.13] border border-white/10 rounded-2xl p-4 text-sm leading-relaxed text-white placeholder:text-white/30 outline-none focus:border-white/30 transition-colors shadow-[0px_4px_24px_rgba(0,0,0,0.08)]"
         />
       </div>

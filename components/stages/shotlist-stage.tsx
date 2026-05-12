@@ -95,8 +95,13 @@ export function ShotlistStage({
 }: ShotlistStageProps) {
   void _look;
   const [copiedGroup, setCopiedGroup] = useState<number | null>(null);
+  const [copiedCharacter, setCopiedCharacter] = useState<string | null>(null);
+  const [copiedLocation, setCopiedLocation] = useState<string | null>(null);
   const [edited, setEdited] = useState<Record<number, string>>({});
+  const [editedCharacters, setEditedCharacters] = useState<Record<string, string>>({});
+  const [editedLocations, setEditedLocations] = useState<Record<string, string>>({});
   const [playerOpen, setPlayerOpen] = useState(false);
+  const [referenceTab, setReferenceTab] = useState<"shots" | "characters" | "locations">("shots");
 
   // Build the reference image list (characters first, then locations) and
   // inject matching <<<image_N>>> markers into every Kling prompt. Order
@@ -178,7 +183,7 @@ export function ShotlistStage({
 
   if (error && !groups.length)
     return (
-      <div className="mx-auto max-w-3xl px-6 py-10 text-xs text-red-400/80">
+      <div className="mx-auto max-w-3xl px-6 py-10 text-sm text-red-400/80">
         {error}
         <button
           onClick={onGenerate}
@@ -196,229 +201,269 @@ export function ShotlistStage({
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      {groups.length > 0 && (
-        <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
-          <Btn
-            small
-            onClick={() => setPlayerOpen(true)}
-            disabled={playableVideos.length === 0}
-          >
-            <span className="inline-flex items-center gap-2">
-              <PlayIcon />
-              {playableVideos.length
-                ? `Play All (${playableVideos.length})`
-                : "Play All"}
-            </span>
-          </Btn>
-          <Btn
-            small
-            onClick={() => {
-              const text = copyAll();
-              const blob = new Blob([text], { type: "text/plain" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `${input.artist} - ${input.title} - Kling Prompts.txt`
-                .replace(/[^\w\s.-]/g, "")
-                .replace(/\s+/g, "-");
-              a.click();
-              URL.revokeObjectURL(url);
-            }}
-          >
-            <span className="inline-flex items-center gap-2">
-              <DownloadIcon />
-              Download .txt
-            </span>
-          </Btn>
-        </div>
-      )}
-
-      <h1 className="font-serif text-5xl text-white">{title}</h1>
-      <p className="mt-3 text-xs text-white/40">
-        {input.artist} · {input.title}
-        {input.runtime ? ` · ${input.runtime}` : ""}
-      </p>
-      {angle && (
-        <p className="mt-3 text-base text-white/70">
-          {angle.pitch}
+    <div className="flex h-[calc(100vh-5rem)] flex-col px-12 py-6">
+      <div className="shrink-0">
+        <h1 className="font-serif text-3xl text-white">{title}</h1>
+        <p className="mt-3 text-sm text-white/40">
+          {input.artist} · {input.title}
+          {input.runtime ? ` · ${input.runtime}` : ""}
         </p>
-      )}
-
-      {error && groups.length > 0 && (
-        <div className="mt-4 text-xs text-red-400/80">
-          {error}
-          <button
-            onClick={onGenerate}
-            className="ml-3 underline hover:text-red-300 cursor-pointer"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
-      {characters.length > 0 && (
-        <Block
-          label={`Cast · ${characters.length} character${
-            characters.length === 1 ? "" : "s"
-          }`}
-        >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {characters.map((c) => (
-              <CharacterCard
-                key={c.tag}
-                character={c}
-                look=""
-                initialPortrait={portraits[c.tag] ?? null}
-                onPersist={(next) =>
-                  setPortraits((ps) => {
-                    if (!next) {
-                      const copy = { ...ps };
-                      delete copy[c.tag];
-                      return copy;
-                    }
-                    return { ...ps, [c.tag]: next };
-                  })
-                }
-              />
-            ))}
-          </div>
-        </Block>
-      )}
-
-      {locations.length > 0 && (
-        <Block
-          label={`Locations · ${locations.length} place${
-            locations.length === 1 ? "" : "s"
-          }`}
-        >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {locations.map((l) => (
-              <LocationCard
-                key={l.tag}
-                location={l}
-                initialPortrait={locationPortraits[l.tag] ?? null}
-                onPersist={(next) =>
-                  setLocationPortraits((ps) => {
-                    if (!next) {
-                      const copy = { ...ps };
-                      delete copy[l.tag];
-                      return copy;
-                    }
-                    return { ...ps, [l.tag]: next };
-                  })
-                }
-              />
-            ))}
-          </div>
-        </Block>
-      )}
-
-      <Block
-        label={
-          groupsWithPrompts.length
-            ? `${groupsWithPrompts.length} prompt${
-                groupsWithPrompts.length === 1 ? "" : "s"
-              } · ${totalSeconds}s`
-            : "Prompts"
-        }
-      >
-        {groupsWithPrompts.length === 0 && !loading && (
-          <button
-            onClick={onGenerate}
-            className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer py-2"
-          >
-            Generate Shot List
-          </button>
+        {angle && (
+          <p className="mt-3 text-sm text-white/70 max-w-[800px]">
+            {angle.pitch}
+          </p>
         )}
-        <div className="divide-y divide-white/10">
-          {groupsWithPrompts.map(({ group, prompt, klingShots, imagePrompt, referenceImages }) => {
-            const value = promptFor(group.groupNumber, prompt);
-            return (
-              <div
-                key={group.groupNumber}
-                className="grid grid-cols-1 gap-4 py-6 first:pt-0 last:pb-0 md:grid-cols-[1fr_480px]"
+
+        {error && groups.length > 0 && (
+          <div className="mt-4 text-sm text-red-400/80">
+            {error}
+            <button
+              onClick={onGenerate}
+              className="ml-3 underline hover:text-red-300 cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 flex min-h-0 flex-1 flex-col">
+        <div className="mb-3 flex shrink-0 items-center gap-3 -mx-12 px-12">
+          <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1">
+            <button
+              onClick={() => setReferenceTab("shots")}
+              className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
+                referenceTab === "shots"
+                  ? "bg-white text-black shadow-sm"
+                  : "text-white/60 hover:bg-white/5 hover:text-white/90"
+              }`}
+            >
+              Shots · {groupsWithPrompts.length}
+            </button>
+            <button
+              onClick={() => setReferenceTab("characters")}
+              className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
+                referenceTab === "characters"
+                  ? "bg-white text-black shadow-sm"
+                  : "text-white/60 hover:bg-white/5 hover:text-white/90"
+              }`}
+            >
+              Cast · {characters.length}
+            </button>
+            <button
+              onClick={() => setReferenceTab("locations")}
+              className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
+                referenceTab === "locations"
+                  ? "bg-white text-black shadow-sm"
+                  : "text-white/60 hover:bg-white/5 hover:text-white/90"
+              }`}
+            >
+              Locations · {locations.length}
+            </button>
+          </div>
+          <div className="flex-1" />
+          {groups.length > 0 && (
+            <div className="flex items-center gap-3">
+              <Btn
+                small
+                onClick={() => setPlayerOpen(true)}
+                disabled={playableVideos.length === 0}
               >
-                <div className="min-w-0 bg-white/[0.08] border border-white/10 rounded-2xl p-4">
-                  {/* Editable Kling prompt */}
-                  <div>
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs font-medium text-white/40">
-                        {klingShots ? `Kling multi-shot (${group.shots.length})` : "Kling prompt"}
-                      </span>
-                      <div className="flex items-center gap-3">
-                        {edited[group.groupNumber] !== undefined &&
-                          edited[group.groupNumber] !== prompt && (
+                <span className="inline-flex items-center gap-2">
+                  <PlayIcon />
+                  {playableVideos.length
+                    ? `Play All (${playableVideos.length})`
+                    : "Play All"}
+                </span>
+              </Btn>
+              <Btn
+                small
+                onClick={() => {
+                  const text = copyAll();
+                  const blob = new Blob([text], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${input.artist} - ${input.title} - Kling Prompts.txt`
+                    .replace(/[^\w\s.-]/g, "")
+                    .replace(/\s+/g, "-");
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <DownloadIcon />
+                  Download .txt
+                </span>
+              </Btn>
+            </div>
+          )}
+        </div>
+        {referenceTab === "shots" && (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {groupsWithPrompts.length === 0 && !loading && (
+              <button
+                onClick={onGenerate}
+                className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer py-2"
+              >
+                Generate Shot List
+              </button>
+            )}
+            <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12">
+              {groupsWithPrompts.map(({ group, prompt, klingShots, imagePrompt, referenceImages }) => {
+                const value = promptFor(group.groupNumber, prompt);
+                return (
+                  <div
+                    key={group.groupNumber}
+                    className="flex shrink-0 flex-col gap-4 w-[600px] h-full bg-white/[0.04] border border-white/10 rounded-2xl p-4"
+                  >
+                    <div className="shrink-0">
+                      <MediaPanel
+                        videoPrompt={value}
+                        klingShots={klingShots}
+                        imagePrompt={imagePrompt}
+                        referenceImages={referenceImages}
+                        initialVideo={videos[group.groupNumber] ?? null}
+                        initialImage={images[group.groupNumber] ?? null}
+                        onPersistVideo={(next) =>
+                          setVideos((vs) => {
+                            if (!next) {
+                              const copy = { ...vs };
+                              delete copy[group.groupNumber];
+                              return copy;
+                            }
+                            return { ...vs, [group.groupNumber]: next };
+                          })
+                        }
+                        onPersistImage={(next) =>
+                          setImages((is) => {
+                            if (!next) {
+                              const copy = { ...is };
+                              delete copy[group.groupNumber];
+                              return copy;
+                            }
+                            return { ...is, [group.groupNumber]: next };
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                      {/* Editable Kling prompt */}
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-sm font-medium text-white/40">
+                            {klingShots ? `Kling multi-shot (${group.shots.length})` : "Kling prompt"}
+                          </span>
+                          <div className="flex items-center gap-3">
+                            {edited[group.groupNumber] !== undefined &&
+                              edited[group.groupNumber] !== prompt && (
+                                <button
+                                  onClick={() =>
+                                    setEdited((e) => {
+                                      const next = { ...e };
+                                      delete next[group.groupNumber];
+                                      return next;
+                                    })
+                                  }
+                                  className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+                                >
+                                  Reset
+                                </button>
+                              )}
                             <button
-                              onClick={() =>
-                                setEdited((e) => {
-                                  const next = { ...e };
-                                  delete next[group.groupNumber];
-                                  return next;
-                                })
-                              }
-                              className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+                              onClick={() => {
+                                navigator.clipboard.writeText(value).then(() => {
+                                  setCopiedGroup(group.groupNumber);
+                                  setTimeout(() => setCopiedGroup(null), 1500);
+                                });
+                              }}
+                              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
                             >
-                              Reset
+                              {copiedGroup === group.groupNumber ? "Copied" : "Copy"}
                             </button>
-                          )}
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(value).then(() => {
-                              setCopiedGroup(group.groupNumber);
-                              setTimeout(() => setCopiedGroup(null), 1500);
-                            });
-                          }}
-                          className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
-                        >
-                          {copiedGroup === group.groupNumber ? "Copied" : "Copy"}
-                        </button>
+                          </div>
+                        </div>
+                        <EditablePrompt
+                          value={value}
+                          onChange={(next) =>
+                            setEdited((e) => ({ ...e, [group.groupNumber]: next }))
+                          }
+                        />
                       </div>
                     </div>
-                    <EditablePrompt
-                      value={value}
-                      onChange={(next) =>
-                        setEdited((e) => ({ ...e, [group.groupNumber]: next }))
-                      }
-                    />
                   </div>
-                </div>
-                <MediaPanel
-                  videoPrompt={value}
-                  klingShots={klingShots}
-                  imagePrompt={imagePrompt}
-                  referenceImages={referenceImages}
-                  initialVideo={videos[group.groupNumber] ?? null}
-                  initialImage={images[group.groupNumber] ?? null}
-                  onPersistVideo={(next) =>
-                    setVideos((vs) => {
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {referenceTab === "characters" && characters.length > 0 && (
+            <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12">
+              {characters.map((c) => (
+                <CharacterCard
+                  key={c.tag}
+                  character={c}
+                  look=""
+                  initialPortrait={portraits[c.tag] ?? null}
+                  onPersist={(next) =>
+                    setPortraits((ps) => {
                       if (!next) {
-                        const copy = { ...vs };
-                        delete copy[group.groupNumber];
+                        const copy = { ...ps };
+                        delete copy[c.tag];
                         return copy;
                       }
-                      return { ...vs, [group.groupNumber]: next };
+                      return { ...ps, [c.tag]: next };
                     })
                   }
-                  onPersistImage={(next) =>
-                    setImages((is) => {
-                      if (!next) {
-                        const copy = { ...is };
-                        delete copy[group.groupNumber];
-                        return copy;
-                      }
-                      return { ...is, [group.groupNumber]: next };
-                    })
+                  editedDescription={editedCharacters[c.tag]}
+                  onDescriptionChange={(description) =>
+                    setEditedCharacters((prev) => ({ ...prev, [c.tag]: description }))
                   }
+                  copied={copiedCharacter === c.tag}
+                  onCopy={() => {
+                    const currentDescription = editedCharacters[c.tag] ?? c.description;
+                    navigator.clipboard.writeText(currentDescription).then(() => {
+                      setCopiedCharacter(c.tag);
+                      setTimeout(() => setCopiedCharacter(null), 1500);
+                    });
+                  }}
                 />
-              </div>
-            );
-          })}
-        </div>
-      </Block>
-
-      <div className="mt-8">
-        <Btn onClick={onBack}>← Back</Btn>
+              ))}
+            </div>
+          )}
+          {referenceTab === "locations" && locations.length > 0 && (
+            <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12">
+              {locations.map((l) => (
+                <LocationCard
+                  key={l.tag}
+                  location={l}
+                  initialPortrait={locationPortraits[l.tag] ?? null}
+                  onPersist={(next) =>
+                    setLocationPortraits((ps) => {
+                      if (!next) {
+                        const copy = { ...ps };
+                        delete copy[l.tag];
+                        return copy;
+                      }
+                      return { ...ps, [l.tag]: next };
+                    })
+                  }
+                  editedDescription={editedLocations[l.tag]}
+                  onDescriptionChange={(description) =>
+                    setEditedLocations((prev) => ({ ...prev, [l.tag]: description }))
+                  }
+                  copied={copiedLocation === l.tag}
+                  onCopy={() => {
+                    const currentDescription = editedLocations[l.tag] ?? l.description;
+                    navigator.clipboard.writeText(currentDescription).then(() => {
+                      setCopiedLocation(l.tag);
+                      setTimeout(() => setCopiedLocation(null), 1500);
+                    });
+                  }}
+                />
+              ))}
+            </div>
+          )}
       </div>
 
       {playerOpen && playableVideos.length > 0 && (
@@ -455,7 +500,7 @@ function EditablePrompt({
       onChange={(e) => onChange(e.target.value)}
       spellCheck={false}
       rows={1}
-      className="block w-full resize-none border-0 bg-transparent p-0 text-xs leading-relaxed text-white/70 whitespace-pre-wrap break-words outline-none focus:ring-0"
+      className="block w-full resize-none border-0 bg-transparent p-0 text-sm leading-relaxed text-white/70 whitespace-pre-wrap break-words outline-none focus:ring-0"
     />
   );
 }
@@ -487,6 +532,10 @@ interface CharacterCardProps {
   look: string;
   initialPortrait: CharacterPortrait | null;
   onPersist: (next: CharacterPortrait | null) => void;
+  editedDescription?: string;
+  onDescriptionChange: (description: string) => void;
+  copied: boolean;
+  onCopy: () => void;
 }
 
 // One row in the Cast section: tag, truncated anchor description, and a
@@ -498,6 +547,10 @@ function CharacterCard({
   look: _look,
   initialPortrait,
   onPersist,
+  editedDescription,
+  onDescriptionChange,
+  copied,
+  onCopy,
 }: CharacterCardProps) {
   void _look;
   const portrait = useGroupImage({
@@ -506,21 +559,22 @@ function CharacterCard({
   });
   const busy =
     portrait.status === "starting" || portrait.status === "processing";
-  const prompt = useMemo(() => derivePortraitPrompt(character), [character]);
+  const currentDescription = editedDescription ?? character.description;
+  const prompt = useMemo(() => derivePortraitPrompt({ ...character, description: currentDescription }), [character, currentDescription]);
   return (
-    <div className="flex flex-col gap-2 bg-white/[0.08] border border-white/10 rounded-2xl p-3">
+    <div className="flex shrink-0 flex-col gap-4 w-[420px] h-full bg-white/[0.04] border border-white/10 rounded-2xl p-4">
       <div className="flex items-start justify-between gap-2">
-        <span className="text-xs font-medium text-white">
+        <span className="text-sm font-medium text-white">
           {character.tag}
         </span>
         {portrait.status === "succeeded" && portrait.imageUrl && (
-          <span className="text-[10px] font-medium text-emerald-400/80">
+          <span className="text-sm font-medium text-emerald-400/80">
             Anchored
           </span>
         )}
       </div>
 
-      <div className="relative aspect-[9/16] w-full overflow-hidden rounded-xl border border-white/10 bg-white/5">
+      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-white/10 bg-white/5">
         {portrait.status === "succeeded" && portrait.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -530,17 +584,17 @@ function CharacterCard({
             className="h-full w-full object-cover"
           />
         ) : busy ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-xs text-white/40">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-sm text-white/40">
             <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
             <span>{portrait.status === "starting" ? "queued" : "rendering"}</span>
           </div>
         ) : portrait.status === "failed" ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-xs text-red-400/80">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-sm text-red-400/80">
             <span className="break-words">
               {portrait.error || "Generation failed"}
             </span>
             <button
-              onClick={() => portrait.generate(prompt, "9:16")}
+              onClick={() => portrait.generate(prompt, "3:4")}
               className="underline hover:text-red-300 cursor-pointer"
             >
               Retry
@@ -548,39 +602,55 @@ function CharacterCard({
           </div>
         ) : (
           <button
-            onClick={() => portrait.generate(prompt, "9:16")}
-            className="flex h-full w-full items-center justify-center text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+            onClick={() => portrait.generate(prompt, "3:4")}
+            className="flex h-full w-full items-center justify-center text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
           >
             Generate Portrait
           </button>
         )}
       </div>
 
-      <p className="text-[11px] leading-snug text-white/50">
-        {character.description}
-      </p>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-sm font-medium text-white/40">
+            Character description
+          </span>
+          <button
+            onClick={onCopy}
+            className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <div className="text-sm leading-snug text-white/70">
+          <EditablePrompt
+            value={currentDescription}
+            onChange={onDescriptionChange}
+          />
+        </div>
+      </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         {portrait.status === "succeeded" && portrait.imageUrl && (
           <>
             <a
               href={portrait.imageUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
             >
               Open
             </a>
             <button
-              onClick={() => portrait.generate(prompt, "9:16")}
-              className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+              onClick={() => portrait.generate(prompt, "3:4")}
+              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
             >
               Regenerate
             </button>
             <button
               onClick={portrait.reset}
               title="Drop this portrait so videos no longer use it as a reference"
-              className="text-xs text-white/40 hover:text-red-400/70 transition cursor-pointer"
+              className="text-sm text-white/40 hover:text-red-400/70 transition cursor-pointer"
             >
               Clear
             </button>
@@ -589,7 +659,7 @@ function CharacterCard({
         {busy && (
           <button
             onClick={portrait.reset}
-            className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+            className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
           >
             Cancel
           </button>
@@ -621,6 +691,10 @@ interface LocationCardProps {
   location: Location;
   initialPortrait: LocationPortrait | null;
   onPersist: (next: LocationPortrait | null) => void;
+  editedDescription?: string;
+  onDescriptionChange: (description: string) => void;
+  copied: boolean;
+  onCopy: () => void;
 }
 
 // One row in the Locations section: tag, anchor description, and a 16:9
@@ -631,6 +705,10 @@ function LocationCard({
   location,
   initialPortrait,
   onPersist,
+  editedDescription,
+  onDescriptionChange,
+  copied,
+  onCopy,
 }: LocationCardProps) {
   const portrait = useGroupImage({
     initial: initialPortrait,
@@ -638,15 +716,16 @@ function LocationCard({
   });
   const busy =
     portrait.status === "starting" || portrait.status === "processing";
-  const prompt = useMemo(() => deriveLocationPrompt(location), [location]);
+  const currentDescription = editedDescription ?? location.description;
+  const prompt = useMemo(() => deriveLocationPrompt({ ...location, description: currentDescription }), [location, currentDescription]);
   return (
-    <div className="flex flex-col gap-2 bg-white/[0.08] border border-white/10 rounded-2xl p-3">
+    <div className="flex shrink-0 flex-col gap-4 w-[520px] h-full bg-white/[0.04] border border-white/10 rounded-2xl p-4">
       <div className="flex items-start justify-between gap-2">
-        <span className="text-xs font-medium text-white">
+        <span className="text-sm font-medium text-white">
           {location.tag}
         </span>
         {portrait.status === "succeeded" && portrait.imageUrl && (
-          <span className="text-[10px] font-medium text-emerald-400/80">
+          <span className="text-sm font-medium text-emerald-400/80">
             Anchored
           </span>
         )}
@@ -662,12 +741,12 @@ function LocationCard({
             className="h-full w-full object-cover"
           />
         ) : busy ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-xs text-white/40">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-sm text-white/40">
             <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
             <span>{portrait.status === "starting" ? "queued" : "rendering"}</span>
           </div>
         ) : portrait.status === "failed" ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-xs text-red-400/80">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-sm text-red-400/80">
             <span className="break-words">
               {portrait.error || "Generation failed"}
             </span>
@@ -681,38 +760,54 @@ function LocationCard({
         ) : (
           <button
             onClick={() => portrait.generate(prompt, "16:9")}
-            className="flex h-full w-full items-center justify-center text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+            className="flex h-full w-full items-center justify-center text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
           >
             Generate Reference
           </button>
         )}
       </div>
 
-      <p className="text-[11px] leading-snug text-white/50">
-        {location.description}
-      </p>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-sm font-medium text-white/40">
+            Location description
+          </span>
+          <button
+            onClick={onCopy}
+            className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <div className="text-sm leading-snug text-white/70">
+          <EditablePrompt
+            value={currentDescription}
+            onChange={onDescriptionChange}
+          />
+        </div>
+      </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         {portrait.status === "succeeded" && portrait.imageUrl && (
           <>
             <a
               href={portrait.imageUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
             >
               Open
             </a>
             <button
               onClick={() => portrait.generate(prompt, "16:9")}
-              className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
             >
               Regenerate
             </button>
             <button
               onClick={portrait.reset}
               title="Drop this location reference so videos no longer use it as a reference"
-              className="text-xs text-white/40 hover:text-red-400/70 transition cursor-pointer"
+              className="text-sm text-white/40 hover:text-red-400/70 transition cursor-pointer"
             >
               Clear
             </button>
@@ -721,7 +816,7 @@ function LocationCard({
         {busy && (
           <button
             onClick={portrait.reset}
-            className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+            className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
           >
             Cancel
           </button>
@@ -789,7 +884,7 @@ function MediaPanel({
     video.status === "starting" || video.status === "processing";
 
   return (
-    <div className="flex w-full flex-col gap-2 md:w-[480px]">
+    <div className="flex w-full flex-col gap-2">
       <div className="flex items-center gap-1">
         <TabButton
           active={tab === "image"}
@@ -838,7 +933,7 @@ function MediaPanel({
       </div>
 
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs text-white/30">
+        <div className="text-sm text-white/30">
           {tab === "image"
             ? "16:9 · 2K storyboard · preview only"
             : referenceImages.length > 0
@@ -854,20 +949,20 @@ function MediaPanel({
                     href={image.imageUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+                    className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
                   >
                     Open
                   </a>
                   <button
                     onClick={() => image.generate(imagePrompt, undefined, referenceImages)}
-                    className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+                    className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
                   >
                     Regenerate
                   </button>
                   <button
                     onClick={image.reset}
                     title="Discard this storyboard image"
-                    className="text-xs text-white/40 hover:text-red-400/70 transition cursor-pointer"
+                    className="text-sm text-white/40 hover:text-red-400/70 transition cursor-pointer"
                   >
                     Clear
                   </button>
@@ -876,7 +971,7 @@ function MediaPanel({
               {imageBusy && (
                 <button
                   onClick={image.reset}
-                  className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+                  className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -891,7 +986,7 @@ function MediaPanel({
                     href={video.videoUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+                    className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
                   >
                     Open
                   </a>
@@ -904,7 +999,7 @@ function MediaPanel({
                         referenceImages
                       )
                     }
-                    className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+                    className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
                   >
                     Regenerate
                   </button>
@@ -913,7 +1008,7 @@ function MediaPanel({
               {videoBusy && (
                 <button
                   onClick={video.reset}
-                  className="text-xs text-white/40 hover:text-white/70 transition cursor-pointer"
+                  className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -942,7 +1037,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 border px-3 py-1.5 text-xs rounded-xl transition cursor-pointer ${
+      className={`flex items-center gap-2 border px-3 py-1.5 text-sm rounded-xl transition cursor-pointer ${
         active
           ? "border-white/20 bg-white/[0.15] text-white"
           : "border-white/10 bg-transparent text-white/40 hover:text-white/70"
@@ -987,7 +1082,7 @@ function ImageTab({
   }
   if (busy) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-xs text-white/40">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-sm text-white/40">
         <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
         <span>{status === "starting" ? "queued" : "rendering"}</span>
       </div>
@@ -995,7 +1090,7 @@ function ImageTab({
   }
   if (status === "failed") {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-xs text-red-400/80">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-sm text-red-400/80">
         <span className="break-words">
           {error || "Generation failed"}
         </span>
@@ -1012,7 +1107,7 @@ function ImageTab({
     <button
       onClick={onGenerate}
       disabled={!prompt.trim()}
-      className="flex h-full w-full items-center justify-center text-xs text-white/40 hover:text-white/70 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex h-full w-full items-center justify-center text-sm text-white/40 hover:text-white/70 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
     >
       Generate Image
     </button>
@@ -1050,7 +1145,7 @@ function VideoTab({
   }
   if (busy) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-xs text-white/40">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-sm text-white/40">
         <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
         <span>{status === "starting" ? "queued" : "rendering"}</span>
       </div>
@@ -1058,7 +1153,7 @@ function VideoTab({
   }
   if (status === "failed") {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-xs text-red-400/80">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-sm text-red-400/80">
         <span className="break-words">
           {error || "Generation failed"}
         </span>
@@ -1075,10 +1170,10 @@ function VideoTab({
     <button
       onClick={onGenerate}
       disabled={!prompt.trim()}
-      className="flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-white/40 hover:text-white/70 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex h-full w-full flex-col items-center justify-center gap-1 text-sm text-white/40 hover:text-white/70 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
     >
       <span>Generate Video</span>
-      <span className="text-[10px] text-white/20">
+      <span className="text-sm text-white/20">
         {hasReferences ? "with character refs" : "text only"}
       </span>
     </button>
@@ -1148,7 +1243,7 @@ function PlayerModal({ videos, onClose }: PlayerModalProps) {
       role="dialog"
       aria-modal="true"
     >
-      <div className="flex items-center justify-between border-b border-white/10 px-6 py-3 text-xs text-white/40">
+      <div className="flex items-center justify-between border-b border-white/10 px-6 py-3 text-sm text-white/40">
         <div>
           Playing {index + 1} of {videos.length} · group {current.groupNumber}
         </div>
@@ -1177,7 +1272,7 @@ function PlayerModal({ videos, onClose }: PlayerModalProps) {
 
       <div className="flex flex-1 items-center justify-center p-6">
         {errored ? (
-          <div className="text-xs text-red-400/80">
+          <div className="text-sm text-red-400/80">
             Failed to load video. Skipping…
           </div>
         ) : (
