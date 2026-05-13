@@ -35,7 +35,7 @@ export default function Home() {
   const [input, setInput] = useState<SongInput>(EMPTY);
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [angle, setAngle] = useState<Idea | null>(null);
-  const [shotMode, setShotMode] = useState<ShotMode>("groups");
+  const [shotMode, setShotMode] = useState<ShotMode>("detailed");
   const [groups, setGroups] = useState<ShotGroup[]>([]);
   const [look, setLook] = useState<string>("");
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -100,8 +100,9 @@ export default function Home() {
         ? [legacySingle]
         : [];
       const loadedAngle = p.angle || null;
-      const loadedShotMode: ShotMode =
-        p.shotMode === "detailed" ? "detailed" : "groups";
+      // The "Use multi shot" toggle always starts off on page load — the user
+      // has to opt back in each session. Saved value is intentionally ignored.
+      const loadedShotMode: ShotMode = "detailed";
       const loadedGroups: ShotGroup[] = Array.isArray(p.groups)
         ? p.groups.filter(
             (g): g is ShotGroup =>

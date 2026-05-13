@@ -96,40 +96,25 @@ export function IdeasStage({
       {ideas.length > 0 && !loading && (
         <>
           {hasLyrics && (
-            <div className="mb-5 flex flex-col gap-2">
-              <div className="text-sm font-medium text-white/60">
-                Shot list mode
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1">
-                  <button
-                    onClick={() => setShotMode("groups")}
-                    className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
-                      shotMode === "groups"
-                        ? "bg-white text-black shadow-sm"
-                        : "text-white/60 hover:bg-white/5 hover:text-white/90"
-                    }`}
-                  >
-                    Multi-shot groups
-                  </button>
-                  <button
-                    onClick={() => setShotMode("detailed")}
-                    className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
-                      shotMode === "detailed"
-                        ? "bg-white text-black shadow-sm"
-                        : "text-white/60 hover:bg-white/5 hover:text-white/90"
-                    }`}
-                  >
-                    Individual detailed shots
-                  </button>
-                </div>
-                <p className="text-sm text-white/40">
-                  {shotMode === "groups"
-                    ? "Fast-cut groups up to 15 seconds each."
-                    : "Each shot is its own clip, 3–15s, with denser cinematography prompts."}
-                </p>
-              </div>
-            </div>
+            <label className="group/toggle mb-5 inline-flex cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                checked={shotMode === "groups"}
+                onChange={(e) =>
+                  setShotMode(e.target.checked ? "groups" : "detailed")
+                }
+                className="sr-only"
+              />
+              <span
+                aria-hidden
+                className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-white/15 transition group-has-[:checked]/toggle:bg-white"
+              >
+                <span className="absolute left-0.5 inline-block h-4 w-4 rounded-full bg-white shadow-sm transition group-has-[:checked]/toggle:translate-x-4 group-has-[:checked]/toggle:bg-black" />
+              </span>
+              <span className="text-sm font-medium text-white/70">
+                Use multi shot
+              </span>
+            </label>
           )}
           <div className="flex flex-col gap-4">
             {ideas.map((idea, i) => (

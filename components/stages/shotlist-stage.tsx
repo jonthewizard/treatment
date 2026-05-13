@@ -201,7 +201,7 @@ export function ShotlistStage({
   }
 
   return (
-    <div className="flex h-[calc(100vh-5rem)] flex-col px-12 py-6">
+    <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-[1200px] flex-col px-12 py-6">
       <div className="shrink-0">
         <h1 className="font-serif text-3xl text-white">{title}</h1>
         <p className="mt-3 text-sm text-white/40">
@@ -209,7 +209,7 @@ export function ShotlistStage({
           {input.runtime ? ` · ${input.runtime}` : ""}
         </p>
         {angle && (
-          <p className="mt-3 text-sm text-white/70 max-w-[800px]">
+          <p className="mt-3 text-sm text-white/70">
             {angle.pitch}
           </p>
         )}
@@ -228,7 +228,7 @@ export function ShotlistStage({
       </div>
 
       <div className="mt-6 flex min-h-0 flex-1 flex-col">
-        <div className="mb-3 flex shrink-0 items-center gap-3 -mx-12 px-12">
+        <div className="mb-3 flex shrink-0 items-center gap-3">
           <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1">
             <button
               onClick={() => setReferenceTab("shots")}
@@ -308,7 +308,7 @@ export function ShotlistStage({
         <div
           className={
             referenceTab === "shots"
-              ? "flex min-h-0 flex-1 flex-col"
+              ? "flex flex-col"
               : "hidden"
           }
         >
@@ -320,15 +320,67 @@ export function ShotlistStage({
                 Generate Shot List
               </button>
             )}
-            <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12">
-              {groupsWithPrompts.map(({ group, prompt, klingShots, imagePrompt, referenceImages }) => {
+            <div className="flex flex-col gap-4 pb-4">
+              {groupsWithPrompts.map(({ group, prompt, klingShots, imagePrompt, referenceImages }, idx) => {
                 const value = promptFor(group.groupNumber, prompt);
+                // Absolute shot range across the whole sequence (1-indexed):
+                // a single-shot group renders "Shot N", a multi-shot group "Shot X-Y".
+                const shotStart =
+                  groupsWithPrompts
+                    .slice(0, idx)
+                    .reduce((sum, g) => sum + g.group.shots.length, 0) + 1;
+                const shotEnd = shotStart + group.shots.length - 1;
+                const shotLabel =
+                  shotStart === shotEnd
+                    ? `Shot ${shotStart}`
+                    : `Shot ${shotStart}-${shotEnd}`;
                 return (
                   <div
                     key={group.groupNumber}
-                    className="flex shrink-0 flex-col gap-4 w-[600px] h-full bg-white/[0.04] border border-white/10 rounded-2xl p-4"
+                    className="flex shrink-0 flex-row gap-10 bg-white/[0.04] rounded-2xl p-4"
                   >
-                    <div className="shrink-0">
+                    <div className="flex min-w-0 flex-1 basis-1/2 flex-col">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-medium text-white/40">
+                          {shotLabel}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          {edited[group.groupNumber] !== undefined &&
+                            edited[group.groupNumber] !== prompt && (
+                              <button
+                                onClick={() =>
+                                  setEdited((e) => {
+                                    const next = { ...e };
+                                    delete next[group.groupNumber];
+                                    return next;
+                                  })
+                                }
+                                className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+                              >
+                                Reset
+                              </button>
+                            )}
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(value).then(() => {
+                                setCopiedGroup(group.groupNumber);
+                                setTimeout(() => setCopiedGroup(null), 1500);
+                              });
+                            }}
+                            className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+                          >
+                            {copiedGroup === group.groupNumber ? "Copied" : "Copy"}
+                          </button>
+                        </div>
+                      </div>
+                      <EditablePrompt
+                        value={value}
+                        onChange={(next) =>
+                          setEdited((e) => ({ ...e, [group.groupNumber]: next }))
+                        }
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1 basis-1/2">
                       <MediaPanel
                         videoPrompt={value}
                         klingShots={klingShots}
@@ -358,50 +410,6 @@ export function ShotlistStage({
                         }
                       />
                     </div>
-                    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                      {/* Editable Kling prompt */}
-                      <div>
-                        <div className="mb-2 flex items-center justify-between">
-                          <span className="text-sm font-medium text-white/40">
-                            {klingShots ? `Kling multi-shot (${group.shots.length})` : "Kling prompt"}
-                          </span>
-                          <div className="flex items-center gap-3">
-                            {edited[group.groupNumber] !== undefined &&
-                              edited[group.groupNumber] !== prompt && (
-                                <button
-                                  onClick={() =>
-                                    setEdited((e) => {
-                                      const next = { ...e };
-                                      delete next[group.groupNumber];
-                                      return next;
-                                    })
-                                  }
-                                  className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
-                                >
-                                  Reset
-                                </button>
-                              )}
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(value).then(() => {
-                                  setCopiedGroup(group.groupNumber);
-                                  setTimeout(() => setCopiedGroup(null), 1500);
-                                });
-                              }}
-                              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
-                            >
-                              {copiedGroup === group.groupNumber ? "Copied" : "Copy"}
-                            </button>
-                          </div>
-                        </div>
-                        <EditablePrompt
-                          value={value}
-                          onChange={(next) =>
-                            setEdited((e) => ({ ...e, [group.groupNumber]: next }))
-                          }
-                        />
-                      </div>
-                    </div>
                   </div>
                 );
               })}
@@ -411,7 +419,7 @@ export function ShotlistStage({
             <div
               className={
                 referenceTab === "characters"
-                  ? "flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12"
+                  ? "flex flex-col gap-4 pb-4"
                   : "hidden"
               }
             >
@@ -451,7 +459,7 @@ export function ShotlistStage({
             <div
               className={
                 referenceTab === "locations"
-                  ? "flex min-h-0 flex-1 gap-4 overflow-x-auto pb-4 -mx-12 px-12"
+                  ? "flex flex-col gap-4 pb-4"
                   : "hidden"
               }
             >
@@ -515,6 +523,27 @@ function EditablePrompt({
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
 
+  // Cast/Locations panes mount while hidden (display: none) so their
+  // generations can poll in the background. While hidden, scrollHeight is 0
+  // and the textarea collapses to a 0px height. When the user switches to
+  // that tab the textarea becomes visible — we need to re-measure then.
+  // Observing the textarea's width covers both "pane became visible"
+  // (width 0 -> real width) and any container resize cases.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let prevWidth = el.offsetWidth;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w === prevWidth) return;
+      prevWidth = w;
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <textarea
       ref={ref}
@@ -522,7 +551,7 @@ function EditablePrompt({
       onChange={(e) => onChange(e.target.value)}
       spellCheck={false}
       rows={1}
-      className="block w-full resize-none border-0 bg-transparent p-0 text-sm leading-relaxed text-white/70 whitespace-pre-wrap break-words outline-none focus:ring-0"
+      className="block w-full resize-none rounded-md border border-white/10 bg-transparent px-3 py-2 text-sm leading-relaxed text-white/70 whitespace-pre-wrap break-words outline-none transition hover:border-white/20 focus:border-white/40 focus:ring-0"
     />
   );
 }
@@ -584,58 +613,11 @@ function CharacterCard({
   const currentDescription = editedDescription ?? character.description;
   const prompt = useMemo(() => derivePortraitPrompt({ ...character, description: currentDescription }), [character, currentDescription]);
   return (
-    <div className="flex shrink-0 flex-col gap-4 w-[420px] h-full bg-white/[0.04] border border-white/10 rounded-2xl p-4">
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-white">
-          {character.tag}
-        </span>
-        {portrait.status === "succeeded" && portrait.imageUrl && (
-          <span className="text-sm font-medium text-emerald-400/80">
-            Anchored
-          </span>
-        )}
-      </div>
-
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-white/10 bg-white/5">
-        {portrait.status === "succeeded" && portrait.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={portrait.imageUrl}
-            src={portrait.imageUrl}
-            alt={`Portrait reference for ${character.tag}`}
-            className="h-full w-full object-cover"
-          />
-        ) : busy ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-sm text-white/40">
-            <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
-            <span>{portrait.status === "starting" ? "queued" : "rendering"}</span>
-          </div>
-        ) : portrait.status === "failed" ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-sm text-red-400/80">
-            <span className="break-words">
-              {portrait.error || "Generation failed"}
-            </span>
-            <button
-              onClick={() => portrait.generate(prompt, "3:4")}
-              className="underline hover:text-red-300 cursor-pointer"
-            >
-              Retry
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => portrait.generate(prompt, "3:4")}
-            className="flex h-full w-full items-center justify-center text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
-          >
-            Generate Portrait
-          </button>
-        )}
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div className="flex shrink-0 flex-row gap-10 bg-white/[0.04] rounded-2xl p-4">
+      <div className="flex min-w-0 flex-1 basis-1/2 flex-col">
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-medium text-white/40">
-            Character description
+          <span className="text-sm font-medium text-white">
+            {character.tag}
           </span>
           <button
             onClick={onCopy}
@@ -644,48 +626,92 @@ function CharacterCard({
             {copied ? "Copied" : "Copy"}
           </button>
         </div>
-        <div className="text-sm leading-snug text-white/70">
-          <EditablePrompt
-            value={currentDescription}
-            onChange={onDescriptionChange}
-          />
-        </div>
+        <EditablePrompt
+          value={currentDescription}
+          onChange={onDescriptionChange}
+        />
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-3">
-        {portrait.status === "succeeded" && portrait.imageUrl && (
-          <>
-            <a
-              href={portrait.imageUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
-            >
-              Open
-            </a>
+      <div className="flex min-w-0 flex-1 basis-1/2 flex-col gap-2">
+        <div className="flex h-5 items-center justify-end">
+          {portrait.status === "succeeded" && portrait.imageUrl && (
+            <span className="text-sm font-medium text-emerald-400/80">
+              Anchored
+            </span>
+          )}
+        </div>
+
+        <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-white/10 bg-white/5">
+          {portrait.status === "succeeded" && portrait.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={portrait.imageUrl}
+              src={portrait.imageUrl}
+              alt={`Portrait reference for ${character.tag}`}
+              className="h-full w-full object-cover"
+            />
+          ) : busy ? (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-sm text-white/40">
+              <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
+              <span>{portrait.status === "starting" ? "queued" : "rendering"}</span>
+            </div>
+          ) : portrait.status === "failed" ? (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-sm text-red-400/80">
+              <span className="break-words">
+                {portrait.error || "Generation failed"}
+              </span>
+              <button
+                onClick={() => portrait.generate(prompt, "3:4")}
+                className="underline hover:text-red-300 cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
             <button
               onClick={() => portrait.generate(prompt, "3:4")}
-              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+              className="flex h-full w-full items-center justify-center text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
             >
-              Regenerate
+              Generate Portrait
             </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {portrait.status === "succeeded" && portrait.imageUrl && (
+            <>
+              <a
+                href={portrait.imageUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+              >
+                Open
+              </a>
+              <button
+                onClick={() => portrait.generate(prompt, "3:4")}
+                className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+              >
+                Regenerate
+              </button>
+              <button
+                onClick={portrait.reset}
+                title="Drop this portrait so videos no longer use it as a reference"
+                className="text-sm text-white/40 hover:text-red-400/70 transition cursor-pointer"
+              >
+                Clear
+              </button>
+            </>
+          )}
+          {busy && (
             <button
               onClick={portrait.reset}
-              title="Drop this portrait so videos no longer use it as a reference"
-              className="text-sm text-white/40 hover:text-red-400/70 transition cursor-pointer"
+              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
             >
-              Clear
+              Cancel
             </button>
-          </>
-        )}
-        {busy && (
-          <button
-            onClick={portrait.reset}
-            className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
-          >
-            Cancel
-          </button>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -741,58 +767,11 @@ function LocationCard({
   const currentDescription = editedDescription ?? location.description;
   const prompt = useMemo(() => deriveLocationPrompt({ ...location, description: currentDescription }), [location, currentDescription]);
   return (
-    <div className="flex shrink-0 flex-col gap-4 w-[520px] h-full bg-white/[0.04] border border-white/10 rounded-2xl p-4">
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-white">
-          {location.tag}
-        </span>
-        {portrait.status === "succeeded" && portrait.imageUrl && (
-          <span className="text-sm font-medium text-emerald-400/80">
-            Anchored
-          </span>
-        )}
-      </div>
-
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-white/5">
-        {portrait.status === "succeeded" && portrait.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={portrait.imageUrl}
-            src={portrait.imageUrl}
-            alt={`Location reference for ${location.tag}`}
-            className="h-full w-full object-cover"
-          />
-        ) : busy ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-sm text-white/40">
-            <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
-            <span>{portrait.status === "starting" ? "queued" : "rendering"}</span>
-          </div>
-        ) : portrait.status === "failed" ? (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-sm text-red-400/80">
-            <span className="break-words">
-              {portrait.error || "Generation failed"}
-            </span>
-            <button
-              onClick={() => portrait.generate(prompt, "16:9")}
-              className="underline hover:text-red-300 cursor-pointer"
-            >
-              Retry
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => portrait.generate(prompt, "16:9")}
-            className="flex h-full w-full items-center justify-center text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
-          >
-            Generate Reference
-          </button>
-        )}
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div className="flex shrink-0 flex-row gap-10 bg-white/[0.04] rounded-2xl p-4">
+      <div className="flex min-w-0 flex-1 basis-1/2 flex-col">
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-medium text-white/40">
-            Location description
+          <span className="text-sm font-medium text-white">
+            {location.tag}
           </span>
           <button
             onClick={onCopy}
@@ -801,48 +780,92 @@ function LocationCard({
             {copied ? "Copied" : "Copy"}
           </button>
         </div>
-        <div className="text-sm leading-snug text-white/70">
-          <EditablePrompt
-            value={currentDescription}
-            onChange={onDescriptionChange}
-          />
-        </div>
+        <EditablePrompt
+          value={currentDescription}
+          onChange={onDescriptionChange}
+        />
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-3">
-        {portrait.status === "succeeded" && portrait.imageUrl && (
-          <>
-            <a
-              href={portrait.imageUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
-            >
-              Open
-            </a>
+      <div className="flex min-w-0 flex-1 basis-1/2 flex-col gap-2">
+        <div className="flex h-5 items-center justify-end">
+          {portrait.status === "succeeded" && portrait.imageUrl && (
+            <span className="text-sm font-medium text-emerald-400/80">
+              Anchored
+            </span>
+          )}
+        </div>
+
+        <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-white/5">
+          {portrait.status === "succeeded" && portrait.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={portrait.imageUrl}
+              src={portrait.imageUrl}
+              alt={`Location reference for ${location.tag}`}
+              className="h-full w-full object-cover"
+            />
+          ) : busy ? (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-sm text-white/40">
+              <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
+              <span>{portrait.status === "starting" ? "queued" : "rendering"}</span>
+            </div>
+          ) : portrait.status === "failed" ? (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-sm text-red-400/80">
+              <span className="break-words">
+                {portrait.error || "Generation failed"}
+              </span>
+              <button
+                onClick={() => portrait.generate(prompt, "16:9")}
+                className="underline hover:text-red-300 cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
             <button
               onClick={() => portrait.generate(prompt, "16:9")}
-              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+              className="flex h-full w-full items-center justify-center text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
             >
-              Regenerate
+              Generate Reference
             </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {portrait.status === "succeeded" && portrait.imageUrl && (
+            <>
+              <a
+                href={portrait.imageUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+              >
+                Open
+              </a>
+              <button
+                onClick={() => portrait.generate(prompt, "16:9")}
+                className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
+              >
+                Regenerate
+              </button>
+              <button
+                onClick={portrait.reset}
+                title="Drop this location reference so videos no longer use it as a reference"
+                className="text-sm text-white/40 hover:text-red-400/70 transition cursor-pointer"
+              >
+                Clear
+              </button>
+            </>
+          )}
+          {busy && (
             <button
               onClick={portrait.reset}
-              title="Drop this location reference so videos no longer use it as a reference"
-              className="text-sm text-white/40 hover:text-red-400/70 transition cursor-pointer"
+              className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
             >
-              Clear
+              Cancel
             </button>
-          </>
-        )}
-        {busy && (
-          <button
-            onClick={portrait.reset}
-            className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
-          >
-            Cancel
-          </button>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
