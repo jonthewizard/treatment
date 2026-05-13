@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // proxy idle-timeouts because bytes flow continuously.
 export const maxDuration = 300;
 
-const CLAUDE_MODEL = "claude-sonnet-4-20250514";
+const CLAUDE_MODEL = "claude-sonnet-4-6";
 
 // Parse pipeline (each step only runs if the previous one failed):
 //  1) strip code-fence markers and any leading non-JSON prose; try parse.
@@ -244,15 +244,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Sonnet 4 supports up to 64k output tokens. Shotlist responses are
+    // Sonnet 4.6 supports up to 64k output tokens. Shotlist responses are
     // verbose by design (each shot's prose appears in three places: the
     // group prompt, the imagePrompt panels, and the shots[] array) so a
     // long song can easily exceed the older 16k cap and truncate mid-JSON.
+    //
+    // Sonnet 4.6+ rejects requests that set both `temperature` and `top_p`.
+    // Keep temperature only — it is also the knob required for extended
+    // thinking compatibility on this model family (must be exactly 1).
     const body: Record<string, unknown> = {
       model: CLAUDE_MODEL,
       max_tokens: 64000,
       temperature: 1,
-      top_p: 0.95,
       messages: [{ role: "user", content: prompt }],
     };
     if (system) body.system = system;
