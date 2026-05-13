@@ -155,7 +155,7 @@ export interface ShotlistResult {
 export async function genShotlist(
   input: SongInput,
   angle: Idea | null,
-  mode: ShotMode = "groups"
+  mode: ShotMode = "detailed"
 ): Promise<ShotlistResult> {
   const sections: LyricSection[] = parseLyrics(input.lyrics);
   const totalSeconds = input.runtime ? runtimeToSeconds(input.runtime) : null;
@@ -229,9 +229,42 @@ Safety reminder — every prompt feeds a downstream content filter.
 
   const locations = sanitizeLocations(result?.locations);
 
-  const groups = sanitizeGroups(result?.groups);
+  const rawGroups = sanitizeGroups(result?.groups);
+
+  // Detailed mode is "one shot per group". The system prompt asks for that
+  // explicitly, but Claude sometimes returns multi-shot groups anyway —
+  // especially on long songs. Split them in place so the UI only ever sees
+  // single-shot groups, which is the only thing the detailed pipeline (one
+  // Kling clip per shot, per-shot durations) is wired to handle.
+  const groups =
+    mode === "detailed" ? splitGroupsToSingleShots(rawGroups) : rawGroups;
 
   return { groups, look, characters, locations };
+}
+
+function splitGroupsToSingleShots(groups: ShotGroup[]): ShotGroup[] {
+  const out: ShotGroup[] = [];
+  let nextNumber = 1;
+  for (const g of groups) {
+    if (g.shots.length <= 1) {
+      out.push({ ...g, groupNumber: nextNumber++ });
+      continue;
+    }
+    for (const shot of g.shots) {
+      const seconds = parseDurationSeconds(shot.duration) || g.totalSeconds;
+      out.push({
+        groupNumber: nextNumber++,
+        totalSeconds: seconds,
+        // The group "prompt" is what Kling sees in single-shot mode. Re-use
+        // the per-shot prompt as the group prompt; the original group
+        // prompt may reference other shots in the bundle.
+        prompt: shot.prompt,
+        imagePrompt: g.imagePrompt,
+        shots: [shot],
+      });
+    }
+  }
+  return out;
 }
 
 function sanitizeCharacters(raw: unknown): Character[] {

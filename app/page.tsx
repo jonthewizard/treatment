@@ -244,7 +244,11 @@ export default function Home() {
   function chooseAngle(a: Idea | null) {
     setAngle(a);
     setStage(2);
-    generateShots(a, shotMode);
+    // Hardcoded "detailed" — multi-shot is currently hidden from the UI.
+    // Even though `shotMode` state and `genShotlist`'s mode param still
+    // exist, we never pass anything else from here. Restore the original
+    // `generateShots(a, shotMode)` if multi-shot is brought back.
+    generateShots(a, "detailed");
   }
 
   return (
@@ -332,7 +336,7 @@ export default function Home() {
           setImages={setImages}
           loading={shotsLoading}
           error={shotsError}
-          onGenerate={() => generateShots(angle, shotMode)}
+          onGenerate={() => generateShots(angle, "detailed")}
           onBack={() => setStage(1)}
         />
       )}
