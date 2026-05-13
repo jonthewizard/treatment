@@ -95,7 +95,14 @@ export function IdeasStage({
 
       {ideas.length > 0 && !loading && (
         <>
-          {hasLyrics && (
+          {/*
+            Multi-shot mode is intentionally hidden from the UI for now —
+            the app generates single detailed shots by default. The toggle,
+            state plumbing (shotMode / setShotMode), and the multi-shot
+            system prompt (SHOTLIST_SYS) are all preserved so we can bring
+            it back later by re-rendering this label.
+          */}
+          {false && hasLyrics && (
             <label className="group/toggle mb-5 inline-flex cursor-pointer items-center gap-3">
               <input
                 type="checkbox"
