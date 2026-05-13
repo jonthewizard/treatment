@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jsonrepair } from "jsonrepair";
 
 export const dynamic = "force-dynamic";
 
 const CLAUDE_MODEL = "claude-sonnet-4-20250514";
 
+// Parse pipeline (each step only runs if the previous one failed):
+//  1) strip code-fence markers and any leading non-JSON prose; try parse.
+//  2) light hand-rolled cleanup (smart quotes, trailing commas, control chars); try parse.
+//  3) jsonrepair — handles bracket-type swaps, missing closers, unescaped quotes,
+//     single-quoted strings, comments, unquoted keys, and most other LLM JSON quirks.
+//  4) hand-rolled inner-quote escaper as a last resort.
+//  5) truncated-array recovery — finds the last fully-closed object and seals the array.
 function tryParseJson(raw: string): unknown {
   let s = raw.replace(/```json\s*|\s*```/g, "").trim();
   const objStart = s.indexOf("{");
@@ -29,6 +37,10 @@ function tryParseJson(raw: string): unknown {
   } catch {}
 
   try {
+    return JSON.parse(jsonrepair(repaired));
+  } catch {}
+
+  try {
     return JSON.parse(escapeInnerQuotes(repaired));
   } catch {}
 
@@ -38,12 +50,15 @@ function tryParseJson(raw: string): unknown {
       return JSON.parse(truncated);
     } catch {}
     try {
+      return JSON.parse(jsonrepair(truncated));
+    } catch {}
+    try {
       return JSON.parse(escapeInnerQuotes(truncated));
     } catch {}
   }
 
   try {
-    return JSON.parse(repaired);
+    return JSON.parse(jsonrepair(s));
   } catch (e) {
     const err = e as Error;
     const pos = (err.message.match(/position (\d+)/) || [])[1];
