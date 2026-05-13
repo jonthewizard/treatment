@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsonrepair } from "jsonrepair";
 
 export const dynamic = "force-dynamic";
+// Long shotlists with max_tokens: 64000 routinely run 60–120s. Vercel
+// Hobby caps at 60s and Pro defaults to 300s. Streaming dodges most
+// proxy idle-timeouts because bytes flow continuously.
+export const maxDuration = 300;
 
 const CLAUDE_MODEL = "claude-sonnet-4-20250514";
 
@@ -194,9 +198,43 @@ async function callWithRetry(
   }
 }
 
+// Streaming variant: does NOT await the response body so we can pipe it
+// through to the client. 429s are still retried once with backoff.
+async function callStreamWithRetry(
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+  signal?: AbortSignal
+): Promise<Response> {
+  let attempt = 0;
+  const maxAttempts = 2;
+  while (true) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      cache: "no-store",
+      headers,
+      body: JSON.stringify({ ...body, stream: true }),
+      signal,
+    });
+
+    if (res.status === 429 && attempt < maxAttempts) {
+      const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
+      const waitMs = retryAfter != null ? retryAfter * 1000 : 8000;
+      // Drain & discard so the connection can be reused.
+      try {
+        await res.body?.cancel();
+      } catch {}
+      await new Promise((r) => setTimeout(r, waitMs));
+      attempt++;
+      continue;
+    }
+
+    return res;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, system, jsonMode } = await req.json();
+    const { prompt, system, jsonMode, stream } = await req.json();
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -224,6 +262,15 @@ export async function POST(req: NextRequest) {
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     };
+
+    if (stream) {
+      return streamingResponse({
+        headers,
+        body,
+        jsonMode: !!jsonMode,
+        signal: req.signal,
+      });
+    }
 
     const { res, rawText } = await callWithRetry(headers, body);
 
@@ -294,4 +341,149 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+// SSE wire format emitted to the client:
+//   data: {"delta":"chunk"}      // each text_delta from Anthropic
+//   data: {"done":true,"result":<parsed>,"text":"...","stopReason":"..."}
+//   data: {"error":"..."}        // terminal error
+// One event per "data:" line, blank line as separator. We forward only
+// text deltas; everything else (ping, message_start, etc.) is dropped.
+async function streamingResponse(opts: {
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+  jsonMode: boolean;
+  signal?: AbortSignal;
+}): Promise<Response> {
+  const { headers, body, jsonMode, signal } = opts;
+
+  let upstream: Response;
+  try {
+    upstream = await callStreamWithRetry(headers, body, signal);
+  } catch (e) {
+    return NextResponse.json(
+      { error: (e as Error).message || "Upstream request failed" },
+      { status: 500 }
+    );
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const errText = await upstream.text().catch(() => "");
+    if (upstream.status === 429) {
+      const retryAfter = parseRetryAfter(upstream.headers.get("retry-after"));
+      const waitMsg = retryAfter
+        ? ` Try again in about ${retryAfter}s.`
+        : " Try again in a minute.";
+      return NextResponse.json(
+        {
+          error: `Rate limited by Anthropic (input tokens per minute exceeded).${waitMsg}`,
+        },
+        { status: 429 }
+      );
+    }
+    return NextResponse.json(
+      {
+        error: `Anthropic API error ${upstream.status}: ${errText.slice(0, 300)}`,
+      },
+      { status: 500 }
+    );
+  }
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+
+  const out = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = upstream.body!.getReader();
+      let buffer = "";
+      let fullText = "";
+      let stopReason: string | undefined;
+
+      const send = (obj: unknown) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      };
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          let sepIdx: number;
+          while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
+            const rawEvent = buffer.slice(0, sepIdx);
+            buffer = buffer.slice(sepIdx + 2);
+
+            // Anthropic SSE events have shape:
+            //   event: <type>
+            //   data: <json>
+            // Only the data line is meaningful for parsing.
+            let dataLine = "";
+            for (const line of rawEvent.split("\n")) {
+              if (line.startsWith("data:")) {
+                dataLine = line.slice(line.startsWith("data: ") ? 6 : 5);
+              }
+            }
+            if (!dataLine || dataLine === "[DONE]") continue;
+
+            try {
+              const parsed = JSON.parse(dataLine) as {
+                type?: string;
+                delta?: { type?: string; text?: string; stop_reason?: string };
+              };
+              if (
+                parsed.type === "content_block_delta" &&
+                parsed.delta?.type === "text_delta" &&
+                typeof parsed.delta.text === "string"
+              ) {
+                fullText += parsed.delta.text;
+                send({ delta: parsed.delta.text });
+              } else if (parsed.type === "message_delta") {
+                if (parsed.delta?.stop_reason) {
+                  stopReason = parsed.delta.stop_reason;
+                }
+              }
+            } catch {
+              // Skip malformed individual events; the stream as a whole
+              // can still complete successfully.
+            }
+          }
+        }
+
+        if (jsonMode) {
+          try {
+            const result = tryParseJson(fullText);
+            send({ done: true, result, text: fullText, stopReason });
+          } catch (e) {
+            const baseMsg = (e as Error).message;
+            const hint =
+              stopReason === "max_tokens"
+                ? " (response was truncated by max_tokens limit)"
+                : "";
+            send({ error: `${baseMsg}${hint}` });
+          }
+        } else {
+          send({ done: true, text: fullText, stopReason });
+        }
+      } catch (e) {
+        send({ error: (e as Error).message || "Stream interrupted" });
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {}
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(out, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      // Disables nginx-style proxy buffering so deltas reach the browser
+      // as soon as they're emitted, not in 4–8KB chunks.
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

@@ -63,6 +63,10 @@ interface ShotlistStageProps {
   setImages: React.Dispatch<React.SetStateAction<Record<number, GroupImage>>>;
   loading: boolean;
   error: string | null;
+  // Streaming text from Claude while the shotlist is being generated. Empty
+  // string when idle. Rendered live in a monospace preview block so the
+  // user can watch the model think instead of staring at a spinner.
+  streamPreview?: string;
   onGenerate: () => void;
   onBack: () => void;
 }
@@ -90,6 +94,7 @@ export function ShotlistStage({
   setImages,
   loading,
   error,
+  streamPreview,
   onGenerate,
   onBack,
 }: ShotlistStageProps) {
@@ -224,6 +229,10 @@ export function ShotlistStage({
               Retry
             </button>
           </div>
+        )}
+
+        {loading && (
+          <StreamPreview text={streamPreview ?? ""} />
         )}
       </div>
 
@@ -502,6 +511,47 @@ export function ShotlistStage({
           onClose={() => setPlayerOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+// Live, monospace preview of Claude's streaming output while the shotlist
+// is being generated. Auto-scrolls to the bottom on each chunk so the
+// newest tokens stay visible. Renders raw JSON as it arrives — the
+// content will be parsed and replaced with proper cards as soon as the
+// stream completes.
+function StreamPreview({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  // Stick-to-bottom: snap scroll position whenever new text arrives.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [text]);
+
+  return (
+    <div className="mt-6 overflow-hidden rounded-2xl bg-white/[0.04]">
+      <div className="flex items-center gap-2 border-b border-white/5 px-4 py-2 text-sm font-medium text-white/40">
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+        </span>
+        Streaming shotlist
+        <span className="ml-auto tabular-nums text-white/30">
+          {text.length.toLocaleString()} chars
+        </span>
+      </div>
+      <div
+        ref={ref}
+        className="max-h-[40vh] overflow-y-auto px-4 py-3 font-mono text-sm leading-relaxed text-white/60 whitespace-pre-wrap break-words"
+      >
+        {text || (
+          <span className="text-white/30">
+            Waiting for first token...
+          </span>
+        )}
+      </div>
     </div>
   );
 }

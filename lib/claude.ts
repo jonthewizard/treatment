@@ -92,6 +92,107 @@ async function callClaude(
   return data.result;
 }
 
+// Streaming counterpart to callClaude. The server emits one SSE event per
+// line with either {delta} (incremental text), {done,result,text} (final
+// parsed JSON when jsonMode is on), or {error}. onDelta receives each text
+// chunk live so the UI can render Claude's output as it arrives.
+async function callClaudeStream(
+  prompt: string,
+  system: string,
+  jsonMode: boolean,
+  onDelta: (chunk: string) => void,
+  signal?: AbortSignal
+): Promise<unknown> {
+  const res = await fetch("/api/claude", {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, system, jsonMode, stream: true }),
+    signal,
+  });
+
+  // Server short-circuits to a JSON error (no stream body) on rate-limit
+  // or upstream failure. Detect by content-type.
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("text/event-stream")) {
+    let data: { error?: string };
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`Unexpected response (${res.status}) from /api/claude`);
+    }
+    if (data.error) throw new Error(data.error);
+    throw new Error(`Request failed (${res.status})`);
+  }
+
+  if (!res.body) throw new Error("Empty stream from /api/claude");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult: unknown = undefined;
+  let finalText = "";
+  let errorMessage: string | null = null;
+  let sawDone = false;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let sepIdx: number;
+      while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
+        const rawEvent = buffer.slice(0, sepIdx);
+        buffer = buffer.slice(sepIdx + 2);
+
+        let dataLine = "";
+        for (const line of rawEvent.split("\n")) {
+          if (line.startsWith("data:")) {
+            dataLine = line.slice(line.startsWith("data: ") ? 6 : 5);
+          }
+        }
+        if (!dataLine) continue;
+
+        let evt: {
+          delta?: string;
+          done?: boolean;
+          result?: unknown;
+          text?: string;
+          error?: string;
+        };
+        try {
+          evt = JSON.parse(dataLine);
+        } catch {
+          continue;
+        }
+
+        if (evt.error) {
+          errorMessage = evt.error;
+          continue;
+        }
+        if (typeof evt.delta === "string") {
+          onDelta(evt.delta);
+          continue;
+        }
+        if (evt.done) {
+          sawDone = true;
+          if (evt.result !== undefined) finalResult = evt.result;
+          if (typeof evt.text === "string") finalText = evt.text;
+        }
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {}
+  }
+
+  if (errorMessage) throw new Error(errorMessage);
+  if (!sawDone) throw new Error("Stream ended before completion");
+  return jsonMode ? finalResult : finalText;
+}
+
 export async function genIdeas(input: SongInput): Promise<Idea[]> {
   const concept = input.concept?.trim() ?? "";
   const lyrics = input.lyrics?.trim() ?? "";
@@ -155,7 +256,9 @@ export interface ShotlistResult {
 export async function genShotlist(
   input: SongInput,
   angle: Idea | null,
-  mode: ShotMode = "detailed"
+  mode: ShotMode = "detailed",
+  onDelta?: (chunk: string) => void,
+  signal?: AbortSignal
 ): Promise<ShotlistResult> {
   const sections: LyricSection[] = parseLyrics(input.lyrics);
   const totalSeconds = input.runtime ? runtimeToSeconds(input.runtime) : null;
@@ -215,7 +318,18 @@ Safety reminder — every prompt feeds a downstream content filter.
 [${nonce()}]`;
 
   const system = mode === "detailed" ? DETAILED_SHOTLIST_SYS : SHOTLIST_SYS;
-  const result = (await callClaude(prompt, system, true)) as {
+  // Shotlist generation is the slow call (60–120s on long songs). Stream
+  // it so the UI can show progress and so intermediate proxies don't
+  // 504 an idle connection. Final JSON is parsed server-side and returned
+  // on the terminal "done" event, so the consumer still gets a parsed
+  // object exactly like the non-streaming callClaude path.
+  const result = (await callClaudeStream(
+    prompt,
+    system,
+    true,
+    onDelta ?? (() => {}),
+    signal
+  )) as {
     look?: string;
     characters?: unknown;
     locations?: unknown;

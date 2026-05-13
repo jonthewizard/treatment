@@ -50,6 +50,10 @@ export default function Home() {
   const [images, setImages] = useState<Record<number, GroupImage>>({});
   const [shotsLoading, setShotsLoading] = useState(false);
   const [shotsError, setShotsError] = useState<string | null>(null);
+  // Live text accumulator for the streaming shotlist call. Reset to "" at
+  // the start of each generation and cleared on success. Rendered as a
+  // monospace preview on the shotlist stage while shotsLoading is true.
+  const [streamPreview, setStreamPreview] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const runIdRef = useRef(0);
 
@@ -57,6 +61,7 @@ export default function Home() {
     const myId = ++runIdRef.current;
     setShotsLoading(true);
     setShotsError(null);
+    setStreamPreview("");
     setGroups([]);
     setLook("");
     setCharacters([]);
@@ -71,7 +76,11 @@ export default function Home() {
         look: nextLook,
         characters: nextCharacters,
         locations: nextLocations,
-      } = await genShotlist(input, forAngle, mode);
+      } = await genShotlist(input, forAngle, mode, (chunk) => {
+        // Drop stale chunks from a previous run that completes late.
+        if (myId !== runIdRef.current) return;
+        setStreamPreview((s) => s + chunk);
+      });
       if (myId !== runIdRef.current) return;
       setGroups(nextGroups);
       setLook(nextLook);
@@ -336,6 +345,7 @@ export default function Home() {
           setImages={setImages}
           loading={shotsLoading}
           error={shotsError}
+          streamPreview={streamPreview}
           onGenerate={() => generateShots(angle, "detailed")}
           onBack={() => setStage(1)}
         />
