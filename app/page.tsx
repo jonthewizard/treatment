@@ -327,7 +327,16 @@ export default function Home() {
           onBack={() => setStage(0)}
         />
       )}
-      {stage === 2 && (
+      {/*
+        ShotlistStage is mounted at all times so the per-card usePrediction
+        hooks keep polling Replicate when the user switches to Song Details
+        or Treatments. Without this, switching tabs unmounts every shot /
+        character / location card and any in-flight image/video generation
+        is silently dropped. InputStage and IdeasStage stay conditionally
+        rendered — IdeasStage auto-fires genIdeas on first mount, so eager
+        mounting would kick off a Claude call before the user is ready.
+      */}
+      <div className={stage === 2 ? undefined : "hidden"}>
         <ShotlistStage
           input={input}
           angle={angle}
@@ -349,7 +358,7 @@ export default function Home() {
           onGenerate={() => generateShots(angle, "detailed")}
           onBack={() => setStage(1)}
         />
-      )}
+      </div>
     </div>
   );
 }
