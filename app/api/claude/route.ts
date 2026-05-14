@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsonrepair } from "jsonrepair";
 
 export const dynamic = "force-dynamic";
-// Long shotlists with max_tokens: 64000 routinely run 60–120s. Vercel
-// Hobby caps at 60s and Pro defaults to 300s. Streaming dodges most
-// proxy idle-timeouts because bytes flow continuously.
-export const maxDuration = 300;
+// Long, detailed shotlists (30+ shots, dense cinematographic prose) can
+// run 4–6 minutes end-to-end. At maxDuration = 300 the Vercel Fluid
+// function gets killed at exactly 300s, our open socket to Anthropic
+// drops, and Anthropic logs a 499 "Client disconnected" — the browser
+// then sees the SSE stream end mid-payload ("Stream ended before
+// completion"). 800s is the Pro-plan ceiling for Fluid Compute. Hobby
+// silently caps at 300s; Enterprise allows 900s. Streaming keeps bytes
+// flowing so proxy idle-timeouts are not a concern; this cap exists
+// purely to bound long generations.
+export const maxDuration = 800;
 
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 
@@ -244,17 +250,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Sonnet 4.6 supports up to 64k output tokens. Shotlist responses are
-    // verbose by design (each shot's prose appears in three places: the
-    // group prompt, the imagePrompt panels, and the shots[] array) so a
-    // long song can easily exceed the older 16k cap and truncate mid-JSON.
+    // Sonnet 4.6 supports up to 64k output tokens, but on Vercel Hobby
+    // we are capped at a 300s function wall and at ~50-80 tok/s output
+    // a 32k cap is the realistic upper bound that can finish before the
+    // function gets killed. Shotlist responses are verbose by design
+    // (each shot's prose appears in three places: the group prompt, the
+    // imagePrompt panels, and the shots[] array) but a well-runtimed
+    // request typically lands at ~10-18k tokens, so 32k leaves comfortable
+    // headroom without inviting runaway generations.
     //
     // Sonnet 4.6+ rejects requests that set both `temperature` and `top_p`.
     // Keep temperature only — it is also the knob required for extended
     // thinking compatibility on this model family (must be exactly 1).
     const body: Record<string, unknown> = {
       model: CLAUDE_MODEL,
-      max_tokens: 64000,
+      max_tokens: 32000,
       temperature: 1,
       messages: [{ role: "user", content: prompt }],
     };
