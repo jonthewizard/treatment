@@ -14,7 +14,6 @@ import type {
 } from "@/types";
 import { parseDurationSeconds } from "@/lib/claude";
 import { useGroupVideo, useGroupImage, type KlingShot } from "@/lib/replicate";
-import { Loader } from "@/components/ui/loader";
 import { Block } from "@/components/ui/block";
 import { Btn } from "@/components/ui/btn";
 
@@ -184,7 +183,8 @@ export function ShotlistStage({
 
   const title = shotlistTitle(input, angle);
 
-  if (loading) return <Loader text="building shot list" />;
+  if (loading)
+    return <StreamingLoaderOverlay text={streamPreview ?? ""} />;
 
   if (error && !groups.length)
     return (
@@ -229,10 +229,6 @@ export function ShotlistStage({
               Retry
             </button>
           </div>
-        )}
-
-        {loading && (
-          <StreamPreview text={streamPreview ?? ""} />
         )}
       </div>
 
@@ -515,42 +511,96 @@ export function ShotlistStage({
   );
 }
 
-// Live, monospace preview of Claude's streaming output while the shotlist
-// is being generated. Auto-scrolls to the bottom on each chunk so the
-// newest tokens stay visible. Renders raw JSON as it arrives — the
-// content will be parsed and replaced with proper cards as soon as the
-// stream completes.
-function StreamPreview({ text }: { text: string }) {
-  const ref = useRef<HTMLDivElement | null>(null);
+// Fullscreen loading overlay shown while Claude streams the shotlist. We
+// render a hint of the live JSON output (anchored to the bottom of a fixed
+// box so newest tokens push older lines up and out of view) under a soft
+// fade mask — the last line fades out into nothing as it arrives, giving
+// a "thinking" feel without dumping the raw JSON on the user.
+function StreamingLoaderOverlay({ text }: { text: string }) {
+  // Decode Claude's JSON-escaped newlines/quotes so the hint reads more
+  // like prose than a single un-wrapped JSON line.
+  const display = useMemo(
+    () => text.replace(/\\n/g, "\n").replace(/\\"/g, '"'),
+    [text]
+  );
+  const hasText = display.trim().length > 0;
 
-  // Stick-to-bottom: snap scroll position whenever new text arrives.
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
+  // Progress is parsed live from the stream. The system prompt asks Claude
+  // to emit "shotCount": N as the very first field of the JSON, so that
+  // total is available within the first few tokens. The running count is
+  // the number of "duration": occurrences seen so far (one per shot, in
+  // both single-shot and multi-shot modes). We cap the running count at
+  // the declared total because the model occasionally over- or under-shoots
+  // the plan, and a "32 of 30" reading would just look broken.
+  const { current, total } = useMemo(() => {
+    const totalMatch = text.match(/"shotCount"\s*:\s*(\d+)/);
+    const totalParsed = totalMatch ? parseInt(totalMatch[1]!, 10) : null;
+    const durationMatches = text.match(/"duration"\s*:/g);
+    const currentParsed = durationMatches?.length ?? 0;
+    return {
+      current: totalParsed
+        ? Math.min(currentParsed, totalParsed)
+        : currentParsed,
+      total: totalParsed,
+    };
   }, [text]);
 
+  let label = "Generating shots...";
+  if (total && current > 0) {
+    label = `Generating ${current} of ${total} shots...`;
+  } else if (total) {
+    label = `Generating ${total} shots...`;
+  } else if (current > 0) {
+    label = `Generating shot ${current}...`;
+  }
+
   return (
-    <div className="mt-6 overflow-hidden rounded-2xl bg-white/[0.04]">
-      <div className="flex items-center gap-2 border-b border-white/5 px-4 py-2 text-sm font-medium text-white/40">
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/60" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-        </span>
-        Streaming shotlist
-        <span className="ml-auto tabular-nums text-white/30">
-          {text.length.toLocaleString()} chars
-        </span>
-      </div>
-      <div
-        ref={ref}
-        className="max-h-[40vh] overflow-y-auto px-4 py-3 font-mono text-sm leading-relaxed text-white/60 whitespace-pre-wrap break-words"
-      >
-        {text || (
-          <span className="text-white/30">
-            Waiting for first token...
-          </span>
-        )}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#454545]/80 backdrop-blur-sm">
+      <div className="flex w-full max-w-xl flex-col px-8">
+        <div className="mb-3 flex items-center gap-2 px-2 text-sm font-medium tracking-wide text-white/60">
+          <svg
+            className="h-4 w-4 animate-spin text-white/60"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="3"
+              opacity="0.25"
+            />
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeDasharray="60"
+              strokeDashoffset="35"
+            />
+          </svg>
+          {label}
+        </div>
+        <div
+          className="relative h-44 w-full overflow-hidden"
+          style={{
+            WebkitMaskImage:
+              "linear-gradient(to bottom, transparent 0%, black 35%, black 65%, transparent 100%)",
+            maskImage:
+              "linear-gradient(to bottom, transparent 0%, black 35%, black 65%, transparent 100%)",
+          }}
+        >
+          {hasText ? (
+            <div className="absolute right-0 bottom-0 left-0 px-2 text-left font-mono text-sm leading-relaxed whitespace-pre-wrap break-words text-white/70">
+              {display}
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );

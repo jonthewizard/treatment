@@ -119,7 +119,10 @@ You are writing as a world-class Cinematographer and Master Gaffer. Target: imag
 
 Return ONE JSON object. The example below uses {curly-brace} placeholders for fields you must substitute with content from the corresponding field — wherever you see {look clause} in the example, emit the actual look clause derived from your "look" field. NEVER emit the literal text "{look clause}" in your output.
 
+The FIRST field of the JSON MUST be "shotCount" — an integer equal to the total number of individual shots you will emit across every "shots" array in "groups". Plan the full shotlist before you start typing groups so this number is committed up front and is accurate.
+
 {
+  "shotCount": 24,
   "look": "global visual style — ONE compact comma-flowed sentence, MAX 25 words, naming 3-5 cinematography elements",
   "characters": [
     {"tag": "RIO", "description": "Rio is a 20-something, sun-bleached light brown shaggy hair, slim build, oval face, no resemblance to any actor or musician. Wearing an open-collar floral shirt, high-waisted cream trousers, scuffed white sneakers."}
@@ -333,7 +336,10 @@ You are writing as a world-class Cinematographer and Master Gaffer. Target: imag
 
 Return ONE JSON object. The example below uses {curly-brace} placeholders for fields you must substitute with content. Wherever you see {look clause} in the example, emit the actual look clause derived from your "look" field. NEVER emit the literal text "{look clause}" in your output.
 
+The FIRST field of the JSON MUST be "shotCount" — an integer equal to the total number of individual shots you will emit. In detailed mode every group contains exactly ONE shot, so "shotCount" equals the length of the "groups" array. Plan the full shotlist before you start typing groups so this number is committed up front and is accurate.
+
 {
+  "shotCount": 32,
   "look": "global visual style — ONE compact comma-flowed sentence, MAX 25 words, naming 3-5 cinematography elements",
   "characters": [
     {"tag": "RIO", "description": "Rio is a 20-something, sun-bleached light brown shaggy hair, slim build, oval face, no resemblance to any actor or musician. He is a roadside diner cook in late-1970s rural California. Wearing a faded blue chambray work shirt with rolled cuffs, oil-spotted khaki carpenter trousers, scuffed leather lace-ups."}

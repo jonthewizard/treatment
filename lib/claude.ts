@@ -240,10 +240,24 @@ function sanitizeIdeas(raw: unknown): Idea[] {
   return out.slice(0, 3);
 }
 
+// Accepts a handful of common shorthand formats so a typo in the Runtime
+// field doesn't silently drop the runtime instruction from the prompt:
+//   "4:34"  -> 274s   (M:SS or MM:SS — minutes + seconds)
+//   "0:10"  -> 10s    (same)
+//   ":10"   -> 10s    (leading-colon seconds shorthand)
+//   "10s"   -> 10s    ("Ns" / "Nsec" / "Nsecs" — explicit seconds suffix)
+//   "10"    -> 10s    (bare digits, treated as seconds for clarity)
 function runtimeToSeconds(runtime: string): number | null {
-  const match = runtime.trim().match(/^(\d+):(\d{2})$/);
-  if (!match) return null;
-  return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+  const trimmed = runtime.trim().toLowerCase();
+  if (!trimmed) return null;
+
+  const mmss = trimmed.match(/^(\d+):(\d{1,2})$/);
+  if (mmss) return parseInt(mmss[1]!, 10) * 60 + parseInt(mmss[2]!, 10);
+
+  const seconds = trimmed.match(/^:?(\d+)\s*(?:s|sec|secs|seconds)?$/);
+  if (seconds) return parseInt(seconds[1]!, 10);
+
+  return null;
 }
 
 export interface ShotlistResult {
