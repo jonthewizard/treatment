@@ -4,6 +4,8 @@ import type {
   ShotGroup,
   ShotEntry,
   ShotMode,
+  ShotStub,
+  ShotlistOutline,
   LyricSection,
   Character,
   Location,
@@ -12,6 +14,8 @@ import {
   IDEAS_SYS,
   SHOTLIST_SYS,
   DETAILED_SHOTLIST_SYS,
+  OUTLINE_SYS,
+  EXPAND_SYS,
 } from "@/lib/prompts";
 import { parseLyrics } from "@/lib/lyrics";
 
@@ -476,6 +480,337 @@ export function parseDurationSeconds(d: string | undefined): number {
   const n = parseFloat(String(d).replace(/[^\d.]/g, ""));
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
+
+// -------- Two-phase shotlist generation -----------------------------------
+//
+// On Vercel Hobby a single 300s function isn't long enough to produce a
+// dense, multi-shot detailed treatment (each shot's prose is ~600-1000
+// tokens; 24 shots × that + bible + storyboards saturates the wall).
+//
+// The two-phase pipeline splits the work into:
+//
+//   PHASE 1 (OUTLINE_SYS) — one streaming call that emits the canonical
+//   bible (look, cast, locations) plus N lightweight stubs. Small output
+//   (~5-10k tokens), fast (~30-60s), well under 300s.
+//
+//   PHASE 2 (EXPAND_SYS) — N small parallel calls, one per stub. Each
+//   sees the full bible + full outline and expands ONE stub into the
+//   dense ShotGroup shape used everywhere else. Each call finishes in
+//   ~10-40s. Bounded concurrency keeps us under browser per-origin
+//   connection caps and Anthropic rate limits.
+//
+// The merged result is identical in shape to the legacy single-call
+// genShotlist, so storyboards / references / persistence are unchanged.
+
+// Sanitize the OUTLINE_SYS response into a typed ShotlistOutline. Drops
+// stubs missing required fields. Renumbers shotNumber so the array is
+// 1-indexed and dense regardless of what the model returned.
+function sanitizeOutline(raw: unknown): ShotStub[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ShotStub[] = [];
+  let n = 1;
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const seconds =
+      typeof o.seconds === "number" && o.seconds > 0
+        ? Math.round(o.seconds)
+        : 0;
+    const summary =
+      typeof o.summary === "string" ? o.summary.replace(/\s+/g, " ").trim() : "";
+    if (!seconds || !summary) continue;
+    out.push({
+      shotNumber: n++,
+      seconds,
+      lyricSection:
+        typeof o.lyricSection === "string" ? o.lyricSection.trim() : "",
+      lyricLine:
+        typeof o.lyricLine === "string" ? o.lyricLine.trim() : "",
+      framing: typeof o.framing === "string" ? o.framing.trim() : "",
+      subject: typeof o.subject === "string" ? o.subject.toUpperCase().trim() : "",
+      location: typeof o.location === "string" ? o.location.toUpperCase().trim() : "",
+      summary,
+    });
+  }
+  return out.slice(0, 24);
+}
+
+function buildOutlineUserPrompt(
+  input: SongInput,
+  angle: Idea | null,
+  totalSeconds: number | null
+): string {
+  const sections: LyricSection[] = parseLyrics(input.lyrics);
+  const runtimeBlock = totalSeconds
+    ? `RUNTIME — MANDATORY:
+- The sum of ALL stub durations in "outline" MUST equal exactly ${totalSeconds} seconds.
+- Each stub's "seconds" must be in the 3–15 range.
+- Satisfy the total by adjusting the NUMBER OF STUBS (up to 24 max), never by stretching beyond 15s or shrinking below 3s.
+- Verify the total before returning.
+
+`
+    : "";
+
+  return `Artist: ${input.artist}
+Song: ${input.title}
+Genre: ${input.genre || "n/a"}
+${totalSeconds ? `TOTAL SECONDS: ${totalSeconds}` : ""}
+${angle ? `\nDirectional angle: ${angle.angle} — ${angle.pitch}\n` : ""}
+LYRIC SECTIONS:
+${sections.map((s) => `[${s.label}]\n${s.lines.join("\n")}`).join("\n\n")}
+
+Plan the shotlist for this song now. Emit the canonical bible (look, characters, locations) and a tight ordered outline of stubs. Tie each stub to a specific lyric section and line where possible.
+
+${runtimeBlock}Safety reminder — every downstream prompt feeds a content filter.
+- Use TAG not generic descriptors for named cast.
+- Hard blocks: real names, depicted weapons-on-people, blood/gore, undress language, drug imagery, self-harm, sexualised framing.
+
+[${nonce()}]`;
+}
+
+export async function genShotlistOutline(
+  input: SongInput,
+  angle: Idea | null,
+  onDelta?: (chunk: string) => void,
+  signal?: AbortSignal
+): Promise<ShotlistOutline> {
+  const totalSeconds = input.runtime ? runtimeToSeconds(input.runtime) : null;
+  const prompt = buildOutlineUserPrompt(input, angle, totalSeconds);
+
+  const result = (await callClaudeStream(
+    prompt,
+    OUTLINE_SYS,
+    true,
+    onDelta ?? (() => {}),
+    signal
+  )) as {
+    look?: string;
+    characters?: unknown;
+    locations?: unknown;
+    outline?: unknown;
+    shotCount?: number;
+  };
+
+  const look = typeof result?.look === "string" ? result.look.trim() : "";
+  const characters = sanitizeCharacters(result?.characters);
+  const locations = sanitizeLocations(result?.locations);
+  const outline = sanitizeOutline(result?.outline);
+
+  return {
+    shotCount: outline.length,
+    look,
+    characters,
+    locations,
+    outline,
+  };
+}
+
+// Build the per-shot expansion user prompt. The bible + full outline are
+// included verbatim so the expansion model has total context for visual
+// grammar continuity. The TARGET STUB is called out clearly so the model
+// expands the right one.
+function buildExpandUserPrompt(
+  stub: ShotStub,
+  outline: ShotlistOutline,
+  input: SongInput,
+  angle: Idea | null
+): string {
+  const totalSeconds = input.runtime ? runtimeToSeconds(input.runtime) : null;
+  const castBlock = outline.characters
+    .map((c) => `- ${c.tag}: ${c.description}`)
+    .join("\n");
+  const locBlock = outline.locations
+    .map((l) => `- ${l.tag}: ${l.description}`)
+    .join("\n");
+  const outlineBlock = outline.outline
+    .map(
+      (s) =>
+        `${s.shotNumber}. [${s.seconds}s] ${s.framing}${s.subject ? ` · ${s.subject}` : ""} @ ${s.location}${s.lyricSection ? ` (${s.lyricSection}${s.lyricLine ? `: "${s.lyricLine.replace(/"/g, "'")}"` : ""})` : ""} — ${s.summary}`
+    )
+    .join("\n");
+
+  return `Artist: ${input.artist}
+Song: ${input.title}
+Genre: ${input.genre || "n/a"}
+${totalSeconds ? `TOTAL SECONDS: ${totalSeconds}` : ""}
+${angle ? `Directional angle: ${angle.angle} — ${angle.pitch}` : ""}
+
+CANONICAL BIBLE (LOCKED — do not redefine, do not invent new cast or locations):
+look: ${outline.look}
+characters:
+${castBlock}
+locations:
+${locBlock}
+
+FULL ORDERED OUTLINE (use for visual-grammar continuity; do NOT expand these — only the TARGET STUB below):
+${outlineBlock}
+
+TARGET STUB — expand this one shot:
+shotNumber: ${stub.shotNumber}
+seconds: ${stub.seconds}
+framing: ${stub.framing}
+subject: ${stub.subject || "(no named cast)"}
+location: ${stub.location}
+${stub.lyricSection ? `lyricSection: ${stub.lyricSection}` : ""}
+${stub.lyricLine ? `lyricLine: "${stub.lyricLine.replace(/"/g, "'")}"` : ""}
+summary: ${stub.summary}
+
+Produce the dense Kling Video prompt and matching Nano Banana 2 storyboard prompt for THIS shot only, following all rules in the system prompt. Output the single-group JSON object.
+
+[${nonce()}]`;
+}
+
+function sanitizeSingleGroup(raw: unknown, fallbackSeconds: number): ShotGroup | null {
+  if (!raw || typeof raw !== "object") return null;
+  const g = raw as Record<string, unknown>;
+  const prompt = typeof g.prompt === "string" ? g.prompt.trim() : "";
+  const imagePrompt =
+    typeof g.imagePrompt === "string" ? g.imagePrompt.trim() : prompt;
+  let seconds =
+    typeof g.seconds === "number" && g.seconds > 0
+      ? Math.round(g.seconds)
+      : 0;
+  const shots = sanitizeShots(g.shots);
+  if (!seconds && shots.length === 1) {
+    seconds = parseDurationSeconds(shots[0]!.duration) || fallbackSeconds;
+  }
+  if (!seconds) seconds = fallbackSeconds;
+  if (!prompt || !seconds) return null;
+  return {
+    groupNumber: 0, // filled in by caller once the full set is assembled
+    totalSeconds: seconds,
+    prompt,
+    imagePrompt,
+    shots,
+  };
+}
+
+export async function expandShot(
+  stub: ShotStub,
+  outline: ShotlistOutline,
+  input: SongInput,
+  angle: Idea | null,
+  signal?: AbortSignal
+): Promise<ShotGroup> {
+  const prompt = buildExpandUserPrompt(stub, outline, input, angle);
+  const result = await callClaude(prompt, EXPAND_SYS, true);
+  const group = sanitizeSingleGroup(result, stub.seconds);
+  if (!group) {
+    throw new Error(
+      `Expansion failed for shot ${stub.shotNumber} — empty or malformed group`
+    );
+  }
+  return group;
+}
+
+export interface TwoPhaseCallbacks {
+  // Live stream chunks from the outline (phase 1) call, used to drive a
+  // streaming preview in the loader overlay.
+  onDelta?: (chunk: string) => void;
+  // Fires once phase 1 completes with a fully-parsed outline. The UI can
+  // immediately show the bible (look, cast, locations) and the expected
+  // shot count.
+  onOutline?: (outline: ShotlistOutline) => void;
+  // Fires every time a single shot expansion completes (phase 2). The UI
+  // can progressively render shot cards as they arrive.
+  onShotComplete?: (index: number, group: ShotGroup) => void;
+  // Fires when a single shot expansion fails after all retries. The UI
+  // can show an error placeholder for that slot and let the user retry.
+  onShotError?: (index: number, error: Error) => void;
+}
+
+// Run a pool of async tasks with bounded concurrency. Resolves once all
+// tasks settle. Used to fan out per-shot expansions while staying under
+// the browser per-origin connection cap (~6) and any per-second rate
+// limits at the API edge.
+async function runWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  concurrency: number,
+  signal?: AbortSignal
+): Promise<Array<{ ok: true; value: T } | { ok: false; error: Error }>> {
+  const results: Array<{ ok: true; value: T } | { ok: false; error: Error }> = new Array(tasks.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      if (signal?.aborted) return;
+      const i = next++;
+      if (i >= tasks.length) return;
+      try {
+        const value = await tasks[i]!();
+        results[i] = { ok: true, value };
+      } catch (e) {
+        results[i] = { ok: false, error: e as Error };
+      }
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, tasks.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+export async function genShotlistTwoPhase(
+  input: SongInput,
+  angle: Idea | null,
+  callbacks: TwoPhaseCallbacks = {},
+  signal?: AbortSignal,
+  concurrency: number = 6
+): Promise<ShotlistResult> {
+  // Phase 1: produce the bible + outline. Stream chunks to the UI.
+  const outline = await genShotlistOutline(input, angle, callbacks.onDelta, signal);
+  callbacks.onOutline?.(outline);
+
+  if (outline.outline.length === 0) {
+    return {
+      groups: [],
+      look: outline.look,
+      characters: outline.characters,
+      locations: outline.locations,
+    };
+  }
+
+  // Phase 2: fan out one expansion per stub. Each task retries once on
+  // failure (Anthropic occasionally 5xx's a single shot) before reporting
+  // an error for that slot — the rest of the shots are unaffected.
+  const tasks = outline.outline.map((stub, index) => async () => {
+    let lastErr: Error | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (signal?.aborted) throw new Error("Aborted");
+      try {
+        const group = await expandShot(stub, outline, input, angle, signal);
+        callbacks.onShotComplete?.(index, group);
+        return group;
+      } catch (e) {
+        lastErr = e as Error;
+      }
+    }
+    if (lastErr) callbacks.onShotError?.(index, lastErr);
+    throw lastErr ?? new Error("Expansion failed");
+  });
+
+  const settled = await runWithConcurrency(tasks, concurrency, signal);
+
+  // Assemble the final groups in outline order. Skip failed slots — the
+  // UI will have already seen onShotError for them. Renumber sequentially
+  // so the rest of the pipeline (storyboards, persistence) sees a clean
+  // 1..N progression.
+  const groups: ShotGroup[] = [];
+  let groupNumber = 1;
+  for (const r of settled) {
+    if (r.ok) groups.push({ ...r.value, groupNumber: groupNumber++ });
+  }
+
+  return {
+    groups,
+    look: outline.look,
+    characters: outline.characters,
+    locations: outline.locations,
+  };
+}
+
+// -------- end two-phase ---------------------------------------------------
 
 // Strip the literal word "character" / "fictional" from descriptions before
 // they are sent to Kling — both trigger animated/stylised renders.

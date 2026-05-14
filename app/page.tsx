@@ -14,7 +14,7 @@ import type {
   LocationPortrait,
 } from "@/types";
 import { saveProject, loadProject } from "@/lib/storage";
-import { genShotlist } from "@/lib/claude";
+import { genShotlistTwoPhase } from "@/lib/claude";
 import { InputStage } from "@/components/stages/input-stage";
 import { IdeasStage } from "@/components/stages/ideas-stage";
 import { ShotlistStage } from "@/components/stages/shotlist-stage";
@@ -50,18 +50,31 @@ export default function Home() {
   const [images, setImages] = useState<Record<number, GroupImage>>({});
   const [shotsLoading, setShotsLoading] = useState(false);
   const [shotsError, setShotsError] = useState<string | null>(null);
-  // Live text accumulator for the streaming shotlist call. Reset to "" at
-  // the start of each generation and cleared on success. Rendered as a
-  // monospace preview on the shotlist stage while shotsLoading is true.
+  // Live text accumulator for the streaming PHASE 1 (outline) call. Reset
+  // to "" at the start of each generation and cleared on success. Rendered
+  // as a monospace preview on the shotlist stage while shotsLoading is true
+  // and the outline hasn't completed yet.
   const [streamPreview, setStreamPreview] = useState("");
+  // PHASE 2 progress: number of expansion calls completed and total
+  // expected (set once phase 1 finishes). Drives the "Generating N of M
+  // shots..." label in the loader overlay.
+  const [phaseProgress, setPhaseProgress] = useState<{
+    done: number;
+    total: number;
+  }>({ done: 0, total: 0 });
   const [hydrated, setHydrated] = useState(false);
   const runIdRef = useRef(0);
 
-  async function generateShots(forAngle: Idea | null, mode: ShotMode) {
+  async function generateShots(forAngle: Idea | null, _mode: ShotMode) {
+    // _mode is preserved on the signature so the rest of the app keeps
+    // compiling, but the two-phase pipeline only operates in detailed mode
+    // (the legacy single-call multi-shot path is unused).
+    void _mode;
     const myId = ++runIdRef.current;
     setShotsLoading(true);
     setShotsError(null);
     setStreamPreview("");
+    setPhaseProgress({ done: 0, total: 0 });
     setGroups([]);
     setLook("");
     setCharacters([]);
@@ -76,10 +89,26 @@ export default function Home() {
         look: nextLook,
         characters: nextCharacters,
         locations: nextLocations,
-      } = await genShotlist(input, forAngle, mode, (chunk) => {
-        // Drop stale chunks from a previous run that completes late.
-        if (myId !== runIdRef.current) return;
-        setStreamPreview((s) => s + chunk);
+      } = await genShotlistTwoPhase(input, forAngle, {
+        onDelta: (chunk) => {
+          if (myId !== runIdRef.current) return;
+          setStreamPreview((s) => s + chunk);
+        },
+        onOutline: (outline) => {
+          if (myId !== runIdRef.current) return;
+          // Phase 1 done — the bible is now canonical. Surface it to the
+          // UI immediately so the user sees "Generating N of M shots..."
+          // progress on the loader, and so persistence captures the
+          // cast/locations even if some expansions fail.
+          setLook(outline.look);
+          setCharacters(outline.characters);
+          setLocations(outline.locations);
+          setPhaseProgress({ done: 0, total: outline.outline.length });
+        },
+        onShotComplete: (_index) => {
+          if (myId !== runIdRef.current) return;
+          setPhaseProgress((p) => ({ ...p, done: p.done + 1 }));
+        },
       });
       if (myId !== runIdRef.current) return;
       setGroups(nextGroups);
@@ -355,6 +384,7 @@ export default function Home() {
           loading={shotsLoading}
           error={shotsError}
           streamPreview={streamPreview}
+          phaseProgress={phaseProgress}
           onGenerate={() => generateShots(angle, "detailed")}
           onBack={() => setStage(1)}
         />

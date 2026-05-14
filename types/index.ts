@@ -44,6 +44,36 @@ export interface LyricSection {
   lines: string[];
 }
 
+// Two-phase generation: a ShotStub is the lightweight planning record
+// emitted by OUTLINE_SYS (phase 1). Each stub locks the shot's framing,
+// subject, location, duration, and a one-line summary so that the parallel
+// expansion pass (phase 2, EXPAND_SYS) produces dense Kling prose against
+// a fixed plan. Stubs are NEVER sent to Kling directly — they always go
+// through expansion first.
+export interface ShotStub {
+  shotNumber: number;
+  seconds: number;
+  lyricSection: string;
+  lyricLine: string;
+  framing: string;
+  subject: string;
+  location: string;
+  summary: string;
+}
+
+// Output of phase 1 (OUTLINE_SYS). Carries the canonical bible (look,
+// cast, locations) that phase 2 expansions inherit verbatim, plus the
+// ordered shot stubs. shotCount mirrors outline.length and is emitted as
+// the FIRST JSON field so a UI can show "N of M" progress live as the
+// stream arrives.
+export interface ShotlistOutline {
+  shotCount: number;
+  look: string;
+  characters: Character[];
+  locations: Location[];
+  outline: ShotStub[];
+}
+
 export interface GroupVideo {
   url: string;
   predictionId: string;

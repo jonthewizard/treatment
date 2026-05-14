@@ -64,8 +64,14 @@ interface ShotlistStageProps {
   error: string | null;
   // Streaming text from Claude while the shotlist is being generated. Empty
   // string when idle. Rendered live in a monospace preview block so the
-  // user can watch the model think instead of staring at a spinner.
+  // user can watch the model think instead of staring at a spinner. Filled
+  // during PHASE 1 (outline) only — phase 2 is N parallel non-streaming
+  // expansions whose progress is conveyed via phaseProgress instead.
   streamPreview?: string;
+  // PHASE 2 progress for the two-phase pipeline. total is 0 until phase 1
+  // completes; once total > 0 the overlay switches from a streaming
+  // outline preview to a "Generating N of M shots..." count-up.
+  phaseProgress?: { done: number; total: number };
   onGenerate: () => void;
   onBack: () => void;
 }
@@ -94,6 +100,7 @@ export function ShotlistStage({
   loading,
   error,
   streamPreview,
+  phaseProgress,
   onGenerate,
   onBack,
 }: ShotlistStageProps) {
@@ -184,7 +191,12 @@ export function ShotlistStage({
   const title = shotlistTitle(input, angle);
 
   if (loading)
-    return <StreamingLoaderOverlay text={streamPreview ?? ""} />;
+    return (
+      <StreamingLoaderOverlay
+        text={streamPreview ?? ""}
+        phaseProgress={phaseProgress}
+      />
+    );
 
   if (error && !groups.length)
     return (
@@ -516,7 +528,13 @@ export function ShotlistStage({
 // box so newest tokens push older lines up and out of view) under a soft
 // fade mask — the last line fades out into nothing as it arrives, giving
 // a "thinking" feel without dumping the raw JSON on the user.
-function StreamingLoaderOverlay({ text }: { text: string }) {
+function StreamingLoaderOverlay({
+  text,
+  phaseProgress,
+}: {
+  text: string;
+  phaseProgress?: { done: number; total: number };
+}) {
   // Decode Claude's JSON-escaped newlines/quotes so the hint reads more
   // like prose than a single un-wrapped JSON line.
   const display = useMemo(
@@ -525,33 +543,23 @@ function StreamingLoaderOverlay({ text }: { text: string }) {
   );
   const hasText = display.trim().length > 0;
 
-  // Progress is parsed live from the stream. The system prompt asks Claude
-  // to emit "shotCount": N as the very first field of the JSON, so that
-  // total is available within the first few tokens. The running count is
-  // the number of "duration": occurrences seen so far (one per shot, in
-  // both single-shot and multi-shot modes). We cap the running count at
-  // the declared total because the model occasionally over- or under-shoots
-  // the plan, and a "32 of 30" reading would just look broken.
-  const { current, total } = useMemo(() => {
+  // The pipeline runs in two phases:
+  //   Phase 1 — streaming outline call. phaseProgress.total is 0. Show
+  //   the live streaming JSON preview underneath a "Planning shotlist..."
+  //   label. We can also peek "shotCount" out of the stream as soon as it
+  //   appears so the label upgrades to "Planning N shots..." mid-stream.
+  //   Phase 2 — N parallel non-streaming expansion calls. phaseProgress
+  //   carries authoritative {done,total}; the stream preview becomes stale
+  //   (phase 1 ended) so we hide it and show only the count-up.
+  const inPhaseTwo = !!(phaseProgress && phaseProgress.total > 0);
+
+  let label = "Planning shotlist...";
+  if (inPhaseTwo) {
+    label = `Generating ${phaseProgress!.done} of ${phaseProgress!.total} shots...`;
+  } else {
     const totalMatch = text.match(/"shotCount"\s*:\s*(\d+)/);
     const totalParsed = totalMatch ? parseInt(totalMatch[1]!, 10) : null;
-    const durationMatches = text.match(/"duration"\s*:/g);
-    const currentParsed = durationMatches?.length ?? 0;
-    return {
-      current: totalParsed
-        ? Math.min(currentParsed, totalParsed)
-        : currentParsed,
-      total: totalParsed,
-    };
-  }, [text]);
-
-  let label = "Generating shots...";
-  if (total && current > 0) {
-    label = `Generating ${current} of ${total} shots...`;
-  } else if (total) {
-    label = `Generating ${total} shots...`;
-  } else if (current > 0) {
-    label = `Generating shot ${current}...`;
+    if (totalParsed) label = `Planning ${totalParsed} shots...`;
   }
 
   return (
@@ -586,21 +594,38 @@ function StreamingLoaderOverlay({ text }: { text: string }) {
           </svg>
           {label}
         </div>
-        <div
-          className="relative h-44 w-full overflow-hidden"
-          style={{
-            WebkitMaskImage:
-              "linear-gradient(to bottom, transparent 0%, black 35%, black 65%, transparent 100%)",
-            maskImage:
-              "linear-gradient(to bottom, transparent 0%, black 35%, black 65%, transparent 100%)",
-          }}
-        >
-          {hasText ? (
-            <div className="absolute right-0 bottom-0 left-0 px-2 text-left font-mono text-sm leading-relaxed whitespace-pre-wrap break-words text-white/70">
-              {display}
+        {inPhaseTwo ? (
+          <div className="px-2">
+            <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-white/70 transition-[width] duration-500 ease-out"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    (phaseProgress!.done / Math.max(1, phaseProgress!.total)) *
+                      100
+                  )}%`,
+                }}
+              />
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : (
+          <div
+            className="relative h-44 w-full overflow-hidden"
+            style={{
+              WebkitMaskImage:
+                "linear-gradient(to bottom, transparent 0%, black 35%, black 65%, transparent 100%)",
+              maskImage:
+                "linear-gradient(to bottom, transparent 0%, black 35%, black 65%, transparent 100%)",
+            }}
+          >
+            {hasText ? (
+              <div className="absolute right-0 bottom-0 left-0 px-2 text-left font-mono text-sm leading-relaxed whitespace-pre-wrap break-words text-white/70">
+                {display}
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   );
