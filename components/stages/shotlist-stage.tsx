@@ -620,7 +620,7 @@ function StreamingLoaderOverlay({
             }}
           >
             {hasText ? (
-              <div className="absolute right-0 bottom-0 left-0 px-2 text-left font-mono text-sm leading-relaxed whitespace-pre-wrap break-words text-white/70">
+              <div className="absolute right-0 bottom-0 left-0 px-2 text-left font-mono text-sm leading-relaxed whitespace-pre-wrap break-words text-white/45">
                 {display}
               </div>
             ) : null}
