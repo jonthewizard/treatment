@@ -6,6 +6,10 @@ interface BtnProps {
   disabled?: boolean;
   primary?: boolean;
   small?: boolean;
+  /** Square padding for icon-only controls (pair with ariaLabel). */
+  iconOnly?: boolean;
+  ariaLabel?: string;
+  title?: string;
   type?: "button" | "submit" | "reset";
 }
 
@@ -15,9 +19,18 @@ export function Btn({
   disabled,
   primary,
   small,
+  iconOnly,
+  ariaLabel,
+  title,
   type = "button",
 }: BtnProps) {
-  const size = small ? "px-4 py-1 text-sm" : "px-5 py-2.5 text-base";
+  const size = small
+    ? iconOnly
+      ? "p-2.5 text-sm"
+      : "px-4 py-1 text-sm"
+    : iconOnly
+      ? "p-3 text-base"
+      : "px-5 py-2.5 text-base";
   const radius = small ? "rounded-full" : "rounded-2xl";
   const weight = small ? "font-medium" : "font-sans";
   const style = primary
@@ -29,6 +42,8 @@ export function Btn({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
+      title={title}
       className={`${size} ${radius} ${weight} ${style} transition cursor-pointer disabled:cursor-not-allowed`}
     >
       {children}

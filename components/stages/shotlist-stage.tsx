@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
   SongInput,
   Idea,
@@ -18,18 +25,29 @@ import { Block } from "@/components/ui/block";
 import { Btn } from "@/components/ui/btn";
 
 // Kling caps reference_images at 7. We pack characters first, then
-// locations, so a treatment with many of each still keeps every face.
+// locations for portrait refs. Optionally the generated storyboard for a
+// group appends onto that list as <<<image_K>>> (REFERENCE ONLY via prompt
+// cues — never wired to `start_image`, which anchors the literal first frame).
 const REFERENCE_IMAGE_CAP = 7;
+
+/** Max concurrent Nano Banana still generations for “generate all stills”. */
+const BULK_STORYBOARD_CONCURRENCY = 3;
+const STORYBOARD_OUTCOME_POLL_MS = 400;
+const STORYBOARD_OUTCOME_MAX_MS = 20 * 60_000;
 
 // Inject <<<image_N>>> markers into a prompt string for every TAG that has
 // a generated reference image. Characters take indices 1..C, then locations
 // follow at C+1..C+L. The N value MUST match the position of the image in
 // the reference_images array sent to Kling/Nano Banana 2.
+// `maxActiveTags` limits how many tags get markers (use 6 when a storyboard
+// reference image steals the seventh Kling slot).
 function injectReferenceMarkers(
   text: string,
-  refs: { tag: string; hasImage: boolean }[]
+  refs: { tag: string; hasImage: boolean }[],
+  maxActiveTags: number = REFERENCE_IMAGE_CAP
 ): string {
-  const active = refs.filter((r) => r.hasImage).slice(0, REFERENCE_IMAGE_CAP);
+  const cap = Math.min(maxActiveTags, REFERENCE_IMAGE_CAP);
+  const active = refs.filter((r) => r.hasImage).slice(0, cap);
   if (!active.length) return text;
   let result = text;
   active.forEach((r, i) => {
@@ -40,6 +58,31 @@ function injectReferenceMarkers(
   });
   return result;
 }
+
+// Appends <<<image_storyIndex>>> so Kling binds the group's generated
+// storyboard board as staging / composition reference only — never paired with
+// `start_image`.
+function appendStoryboardReferenceCue(
+  prompt: string,
+  storyIndex: number
+): string {
+  if (storyIndex <= 0) return prompt;
+  return `${prompt}\nREFERENCE STAGING BOARD ONLY — <<<image_${storyIndex}>> — cinematography framing layout colour blocking cue ONLY beside the prose; do NOT match this freeze as the obligatory opening video frame.`;
+}
+
+type MediaPanelSurface = {
+  imageBusy: boolean;
+  videoBusy: boolean;
+  /** Snapshot of the Nano Banana lifecycle for Grid parity with Image tab. */
+  imageStatus: ReturnType<typeof useGroupImage>["status"];
+  imageError: string | null;
+  transientImageUrl: string | null;
+};
+
+type MediaPanelHandle = {
+  generateImage: () => void;
+  generateVideo: () => void;
+};
 
 interface ShotlistStageProps {
   input: SongInput;
@@ -113,6 +156,34 @@ export function ShotlistStage({
   const [editedLocations, setEditedLocations] = useState<Record<string, string>>({});
   const [playerOpen, setPlayerOpen] = useState(false);
   const [referenceTab, setReferenceTab] = useState<"shots" | "characters" | "locations">("shots");
+  const [shotsView, setShotsView] = useState<"list" | "grid">("list");
+  /** Mirrors each group's media hook state into Grid (still frames only there). */
+  const [panelSurfaceByGroup, setPanelSurfaceByGroup] = useState<
+    Record<number, MediaPanelSurface>
+  >({});
+
+  const registerPanelSurface = useCallback((groupNumber: number, s: MediaPanelSurface) => {
+    setPanelSurfaceByGroup((prev) => {
+      const p = prev[groupNumber];
+      if (
+        p &&
+        p.imageBusy === s.imageBusy &&
+        p.videoBusy === s.videoBusy &&
+        p.imageStatus === s.imageStatus &&
+        p.imageError === s.imageError &&
+        p.transientImageUrl === s.transientImageUrl
+      )
+        return prev;
+      return { ...prev, [groupNumber]: s };
+    });
+  }, []);
+
+  const mediaApisRef = useRef<Map<number, MediaPanelHandle>>(new Map());
+  const panelSurfaceRef = useRef(panelSurfaceByGroup);
+  panelSurfaceRef.current = panelSurfaceByGroup;
+  const imagesBulkRef = useRef(images);
+  imagesBulkRef.current = images;
+  const [bulkStoryboardRunning, setBulkStoryboardRunning] = useState(false);
 
   // Build the reference image list (characters first, then locations) and
   // inject matching <<<image_N>>> markers into every Kling prompt. Order
@@ -129,36 +200,74 @@ export function ShotlistStage({
       url: locationPortraits[l.tag]?.url,
     }));
     const orderedRefs = [...charRefs, ...locRefs];
-    const referenceImages = orderedRefs
+
+    const portraitReferenceImages = orderedRefs
       .filter((r) => r.hasImage && r.url)
       .slice(0, REFERENCE_IMAGE_CAP)
       .map((r) => r.url as string);
+
     const markerRefs = orderedRefs.map((r) => ({
       tag: r.tag,
       hasImage: r.hasImage,
     }));
 
     return groups.map((g) => {
-      const prompt = injectReferenceMarkers(g.prompt, markerRefs);
+      const storyUrl = images[g.groupNumber]?.url?.trim() || "";
+
+      const maxTagSlots = storyUrl
+        ? REFERENCE_IMAGE_CAP - 1
+        : REFERENCE_IMAGE_CAP;
+
+      let prompt = injectReferenceMarkers(g.prompt, markerRefs, maxTagSlots);
+      const tagSlice = orderedRefs
+        .filter((r) => r.hasImage && r.url)
+        .slice(0, maxTagSlots);
+      let videoReferenceImages = tagSlice.map((r) => r.url as string);
+
+      if (storyUrl) {
+        const cueIndex = tagSlice.length + 1;
+        prompt = appendStoryboardReferenceCue(prompt, cueIndex);
+        videoReferenceImages = [...videoReferenceImages, storyUrl];
+      }
+
       const klingShots: KlingShot[] | null =
         g.shots.length > 0 && g.shots.length <= 6
           ? g.shots.map((s) => ({
-              prompt: injectReferenceMarkers(s.prompt, markerRefs),
+              prompt: injectReferenceMarkers(s.prompt, markerRefs, maxTagSlots),
               duration: Math.max(
                 1,
                 Math.round(parseDurationSeconds(s.duration) || 1)
               ),
             }))
           : null;
+
+      if (storyUrl && klingShots) {
+        const idx = tagSlice.length + 1;
+        klingShots.forEach((row, si) => {
+          klingShots[si] = {
+            ...row,
+            prompt: appendStoryboardReferenceCue(row.prompt, idx),
+          };
+        });
+      }
+
       return {
         group: g,
         prompt,
         klingShots,
-        referenceImages,
+        referenceImages: portraitReferenceImages,
+        videoReferenceImages,
         imagePrompt: g.imagePrompt,
       };
     });
-  }, [groups, characters, portraits, locations, locationPortraits]);
+  }, [
+    groups,
+    characters,
+    portraits,
+    locations,
+    locationPortraits,
+    images,
+  ]);
 
   // Reset local edits whenever groups regenerate.
   useEffect(() => {
@@ -187,6 +296,106 @@ export function ShotlistStage({
         .filter((x): x is { groupNumber: number; url: string } => x !== null),
     [groupsWithPrompts, videos]
   );
+
+  /** Groups missing a storyboard still but with a non-empty image prompt. */
+  const bulkPendingStoryboardTargets = useMemo(() => {
+    const targets: number[] = [];
+    for (const row of groupsWithPrompts) {
+      const gn = row.group.groupNumber;
+      if (!row.imagePrompt.trim()) continue;
+      if (images[gn]?.url) continue;
+      targets.push(gn);
+    }
+    return targets;
+  }, [groupsWithPrompts, images]);
+
+  const runBulkStoryboardGeneration = useCallback(async () => {
+    const surfaces = panelSurfaceRef;
+    const imgs = imagesBulkRef;
+
+    function imageGenBusy(gn: number): boolean {
+      const s = surfaces.current[gn];
+      return !!(
+        s &&
+        (s.imageBusy ||
+          s.imageStatus === "starting" ||
+          s.imageStatus === "processing")
+      );
+    }
+
+    async function waitStoryboardOutcome(gn: number): Promise<void> {
+      const t0 = Date.now();
+      let sawBusy = false;
+
+      await new Promise<void>((resolve) => {
+        const iv = setInterval(() => {
+          if (Date.now() - t0 > STORYBOARD_OUTCOME_MAX_MS) {
+            clearInterval(iv);
+            resolve();
+            return;
+          }
+          const s = surfaces.current[gn];
+          const persisted = imgs.current[gn]?.url;
+          const busy = !!(
+            s &&
+            (s.imageBusy ||
+              s.imageStatus === "starting" ||
+              s.imageStatus === "processing")
+          );
+          if (busy) sawBusy = true;
+
+          if (persisted) {
+            clearInterval(iv);
+            resolve();
+            return;
+          }
+          if (s?.imageStatus === "failed") {
+            clearInterval(iv);
+            resolve();
+            return;
+          }
+          if (s?.imageStatus === "succeeded") {
+            if (s.transientImageUrl || !busy) {
+              clearInterval(iv);
+              resolve();
+              return;
+            }
+          }
+          if (sawBusy && !busy && s?.imageStatus === "idle") {
+            clearInterval(iv);
+            resolve();
+          }
+        }, STORYBOARD_OUTCOME_POLL_MS);
+      });
+    }
+
+    const q = bulkPendingStoryboardTargets.filter((gn) => !imageGenBusy(gn));
+
+    if (q.length === 0) return;
+
+    setBulkStoryboardRunning(true);
+    try {
+      await Promise.all(
+        Array.from(
+          {
+            length: Math.min(BULK_STORYBOARD_CONCURRENCY, q.length),
+          },
+          async () => {
+            while (q.length > 0) {
+              const gn = q.shift();
+              if (gn === undefined) break;
+              const api = mediaApisRef.current.get(gn);
+              if (!api) continue;
+              api.generateImage();
+              await waitStoryboardOutcome(gn);
+            }
+          }
+        )
+      );
+    } finally {
+      setBulkStoryboardRunning(false);
+    }
+  }, [bulkPendingStoryboardTargets]);
 
   const title = shotlistTitle(input, angle);
 
@@ -220,7 +429,53 @@ export function ShotlistStage({
   return (
     <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-[1200px] flex-col px-12 py-6">
       <div className="shrink-0">
-        <h1 className="font-serif text-3xl text-white">{title}</h1>
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <h1 className="min-w-0 max-w-[min(100%,42rem)] font-serif text-3xl text-white">
+            {title}
+          </h1>
+          {groups.length > 0 && (
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Btn
+                small
+                iconOnly
+                ariaLabel={
+                  playableVideos.length
+                    ? `Play all ${playableVideos.length} videos`
+                    : "Play all videos"
+                }
+                title={
+                  playableVideos.length
+                    ? `Play all (${playableVideos.length})`
+                    : "Play all"
+                }
+                onClick={() => setPlayerOpen(true)}
+                disabled={playableVideos.length === 0}
+              >
+                <PlayIcon />
+              </Btn>
+              <Btn
+                small
+                iconOnly
+                ariaLabel="Download Kling prompts as a text file"
+                title="Download .txt"
+                onClick={() => {
+                  const text = copyAll();
+                  const blob = new Blob([text], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${input.artist} - ${input.title} - Kling Prompts.txt`
+                    .replace(/[^\w\s.-]/g, "")
+                    .replace(/\s+/g, "-");
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                <DownloadIcon />
+              </Btn>
+            </div>
+          )}
+        </div>
         <p className="mt-3 text-sm text-white/40">
           {input.artist} · {input.title}
           {input.runtime ? ` · ${input.runtime}` : ""}
@@ -279,53 +534,62 @@ export function ShotlistStage({
             </button>
           </div>
           <div className="flex-1" />
-          {groups.length > 0 && (
-            <div className="flex items-center gap-3">
-              <Btn
-                small
-                onClick={() => setPlayerOpen(true)}
-                disabled={playableVideos.length === 0}
+          {referenceTab === "shots" &&
+            groupsWithPrompts.length > 0 && (
+              <button
+                type="button"
+                title="Runs up to 3 Nano Banana stills in parallel. Skips shots that already have a storyboard image."
+                disabled={
+                  bulkStoryboardRunning ||
+                  bulkPendingStoryboardTargets.length === 0
+                }
+                onClick={() => void runBulkStoryboardGeneration()}
+                className="shrink-0 text-sm font-medium transition cursor-pointer text-white/40 hover:text-white/85 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <span className="inline-flex items-center gap-2">
-                  <PlayIcon />
-                  {playableVideos.length
-                    ? `Play All (${playableVideos.length})`
-                    : "Play All"}
-                </span>
-              </Btn>
-              <Btn
-                small
-                onClick={() => {
-                  const text = copyAll();
-                  const blob = new Blob([text], { type: "text/plain" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `${input.artist} - ${input.title} - Kling Prompts.txt`
-                    .replace(/[^\w\s.-]/g, "")
-                    .replace(/\s+/g, "-");
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                <span className="inline-flex items-center gap-2">
-                  <DownloadIcon />
-                  Download .txt
-                </span>
-              </Btn>
-            </div>
-          )}
+                {bulkStoryboardRunning
+                  ? "Generating stills…"
+                  : bulkPendingStoryboardTargets.length === 0
+                    ? "All stills generated"
+                    : `Generate missing stills (${bulkPendingStoryboardTargets.length})`}
+              </button>
+            )}
+          {referenceTab === "shots" &&
+            groupsWithPrompts.length > 0 && (
+              <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1">
+                <button
+                  type="button"
+                  onClick={() => setShotsView("list")}
+                  className={`cursor-pointer rounded-full px-3 py-1 text-xs font-medium transition sm:text-sm ${
+                    shotsView === "list"
+                      ? "bg-white text-black shadow-sm"
+                      : "text-white/60 hover:bg-white/5 hover:text-white/90"
+                  }`}
+                >
+                  List
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShotsView("grid")}
+                  className={`cursor-pointer rounded-full px-3 py-1 text-xs font-medium transition sm:text-sm ${
+                    shotsView === "grid"
+                      ? "bg-white text-black shadow-sm"
+                      : "text-white/60 hover:bg-white/5 hover:text-white/90"
+                  }`}
+                >
+                  Grid
+                </button>
+              </div>
+            )}
         </div>
         {/*
-          All three tab panes stay mounted at all times — only visibility
-          toggles. This keeps every card's usePrediction hook alive across
-          tab switches so in-flight Replicate generations continue polling
-          in the background instead of being cancelled and lost.
+          Tab panes and Shots List/Grid stay mounted — only visibility toggles.
+          That keeps MediaPanel usePrediction hooks alive so in-flight
+          Replicate generations keep polling instead of cancelling.
         */}
         <div
           className={
             referenceTab === "shots"
-              ? "flex flex-col"
+              ? "flex min-h-0 flex-1 flex-col"
               : "hidden"
           }
         >
@@ -337,8 +601,23 @@ export function ShotlistStage({
                 Generate Shot List
               </button>
             )}
-            <div className="flex flex-col gap-4 pb-4">
-              {groupsWithPrompts.map(({ group, prompt, klingShots, imagePrompt, referenceImages }, idx) => {
+            <div
+              className={`min-h-0 flex-1 flex-col gap-4 pb-4 ${
+                shotsView === "list" ? "flex" : "hidden"
+              }`}
+            >
+              {groupsWithPrompts.map(
+                (
+                  {
+                    group,
+                    prompt,
+                    klingShots,
+                    imagePrompt,
+                    referenceImages,
+                    videoReferenceImages,
+                  },
+                  idx
+                ) => {
                 const value = promptFor(group.groupNumber, prompt);
                 // Absolute shot range across the whole sequence (1-indexed):
                 // a single-shot group renders "Shot N", a multi-shot group "Shot X-Y".
@@ -399,10 +678,14 @@ export function ShotlistStage({
                     </div>
                     <div className="min-w-0 flex-1 basis-1/2">
                       <MediaPanel
+                        groupNumber={group.groupNumber}
+                        mediaApisSink={mediaApisRef}
+                        reportPanelSurface={registerPanelSurface}
                         videoPrompt={value}
                         klingShots={klingShots}
                         imagePrompt={imagePrompt}
                         referenceImages={referenceImages}
+                        videoReferenceImages={videoReferenceImages}
                         initialVideo={videos[group.groupNumber] ?? null}
                         initialImage={images[group.groupNumber] ?? null}
                         onPersistVideo={(next) =>
@@ -427,6 +710,128 @@ export function ShotlistStage({
                         }
                       />
                     </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Grid stays mounted alongside list so list MediaPanels keep polling. */}
+            <div
+              className={`min-h-0 flex-1 overflow-auto pb-4 ${
+                shotsView === "grid" ? "grid" : "hidden"
+              } grid-cols-3 gap-3`}
+            >
+              {groupsWithPrompts.map(({ group, imagePrompt }, idx) => {
+                const shotStart =
+                  groupsWithPrompts
+                    .slice(0, idx)
+                    .reduce((sum, g) => sum + g.group.shots.length, 0) + 1;
+                const shotEnd = shotStart + group.shots.length - 1;
+                const shotLabel =
+                  shotStart === shotEnd
+                    ? `Shot ${shotStart}`
+                    : `Shot ${shotStart}-${shotEnd}`;
+                const gn = group.groupNumber;
+                const snap = panelSurfaceByGroup[gn];
+                const persistedUrl = images[gn]?.url ?? null;
+
+                let frameInner: React.ReactNode;
+
+                if (!snap && persistedUrl) {
+                  frameInner = (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={persistedUrl}
+                      alt={`${shotLabel} storyboard`}
+                      className="h-full w-full object-cover"
+                    />
+                  );
+                } else if (!snap) {
+                  frameInner = (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        mediaApisRef.current.get(gn)?.generateImage()
+                      }
+                      disabled={!imagePrompt.trim()}
+                      className="flex h-full w-full min-h-[120px] items-center justify-center text-sm text-white/40 hover:text-white/70 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Generate Image
+                    </button>
+                  );
+                } else {
+                  const urlForDisplay =
+                    snap.transientImageUrl ?? persistedUrl ?? null;
+
+                  const imageBusyInner =
+                    snap.imageBusy ||
+                    snap.imageStatus === "starting" ||
+                    snap.imageStatus === "processing";
+
+                  if (imageBusyInner) {
+                    frameInner = (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-sm text-white/40">
+                        <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
+                        <span>
+                          {snap.imageStatus === "starting"
+                            ? "queued"
+                            : "rendering"}
+                        </span>
+                      </div>
+                    );
+                  } else if (snap.imageStatus === "failed") {
+                    frameInner = (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-sm text-red-400/80">
+                        <span className="break-words">
+                          {snap.imageError || "Generation failed"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            mediaApisRef.current.get(gn)?.generateImage()
+                          }
+                          className="underline hover:text-red-300 cursor-pointer"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    );
+                  } else if (urlForDisplay) {
+                    frameInner = (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={urlForDisplay}
+                        alt={`${shotLabel} storyboard`}
+                        className="h-full w-full object-cover"
+                      />
+                    );
+                  } else {
+                    frameInner = (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          mediaApisRef.current.get(gn)?.generateImage()
+                        }
+                        disabled={!imagePrompt.trim()}
+                        className="flex h-full w-full min-h-[120px] items-center justify-center text-sm text-white/40 hover:text-white/70 transition cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Generate Image
+                      </button>
+                    );
+                  }
+                }
+
+                return (
+                  <div
+                    key={`grid-${gn}`}
+                    className="flex flex-col gap-1.5"
+                  >
+                    <div className="aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
+                      {frameInner}
+                    </div>
+                    <p className="truncate px-0.5 text-xs font-medium text-white/45">
+                      {shotLabel}
+                    </p>
                   </div>
                 );
               })}
@@ -997,14 +1402,18 @@ function LocationCard({
 }
 
 interface MediaPanelProps {
+  groupNumber: number;
+  mediaApisSink: React.MutableRefObject<Map<number, MediaPanelHandle>>;
+  reportPanelSurface: (groupNumber: number, surface: MediaPanelSurface) => void;
   videoPrompt: string;
   // Per-shot array for Kling multi-shot mode (groups ≤6 shots).
   // Null falls back to single videoPrompt.
   klingShots?: KlingShot[] | null;
   imagePrompt: string;
-  // Portrait URLs sent as reference images to both Nano Banana 2 (still) and
-  // Kling (video). Kling binds them via <<<image_N>>> markers in the prompts.
+  // Portrait URLs only — Nano Banana 2 (still) and Kling image-tab semantics.
   referenceImages: string[];
+  // Kling Video: portraits + optional last-slot storyboard (reference_images only).
+  videoReferenceImages: string[];
   initialVideo: GroupVideo | null;
   initialImage: GroupImage | null;
   onPersistVideo: (next: GroupVideo | null) => void;
@@ -1018,13 +1427,17 @@ type MediaTab = "image" | "video";
 //         showing every shot in the group as a labelled still. Planning
 //         visual only — never used as Kling's start_image.
 // VIDEO — Kling Video 3.0 Omni. Multi-shot when group ≤6 shots; single
-//         prompt fallback otherwise. Character portraits flow as
-//         reference_images via the <<<image_N>>> markers in the prompt.
+//         prompt fallback otherwise. Portraits (+ optional generated storyboard
+//         as <<<image_K>>>) flow as reference_images; storyboard never uses start_image.
 function MediaPanel({
+  groupNumber,
+  mediaApisSink,
+  reportPanelSurface,
   videoPrompt,
   klingShots,
   imagePrompt,
   referenceImages,
+  videoReferenceImages,
   initialVideo,
   initialImage,
   onPersistVideo,
@@ -1039,6 +1452,53 @@ function MediaPanel({
     onPersist: onPersistVideo,
   });
 
+  const promptsRef = useRef({
+    imagePrompt,
+    videoPrompt,
+    referenceImages,
+    videoReferenceImages,
+    klingShots,
+  });
+
+  promptsRef.current.imagePrompt = imagePrompt;
+  promptsRef.current.videoPrompt = videoPrompt;
+  promptsRef.current.referenceImages = referenceImages;
+  promptsRef.current.videoReferenceImages = videoReferenceImages;
+  promptsRef.current.klingShots = klingShots;
+
+  const genRef = useRef({ ig: image.generate, vg: video.generate });
+  genRef.current = { ig: image.generate, vg: video.generate };
+
+  /** Stable imperative handle for Grid (and tooling) keyed in `mediaApisSink`. */
+  const panelApi = useMemo(
+    (): MediaPanelHandle => ({
+      generateImage: () => {
+        const p = promptsRef.current;
+        if (!p.imagePrompt.trim()) return;
+        genRef.current.ig(p.imagePrompt, undefined, p.referenceImages);
+      },
+      generateVideo: () => {
+        const p = promptsRef.current;
+        if (!p.videoPrompt.trim()) return;
+        genRef.current.vg(
+          p.videoPrompt,
+          p.klingShots ?? null,
+          null,
+          p.videoReferenceImages
+        );
+      },
+    }),
+    []
+  );
+
+  useLayoutEffect(() => {
+    const sink = mediaApisSink.current;
+    sink.set(groupNumber, panelApi);
+    return () => {
+      sink.delete(groupNumber);
+    };
+  }, [groupNumber, mediaApisSink, panelApi]);
+
   // Default tab: prefer Image when both empty (it's step 1 of the flow);
   // otherwise show whichever already has content, biased to Image since the
   // user typically inspects the still before regenerating the video.
@@ -1052,6 +1512,26 @@ function MediaPanel({
     image.status === "starting" || image.status === "processing";
   const videoBusy =
     video.status === "starting" || video.status === "processing";
+
+  const reportSurfaceRef = useRef(reportPanelSurface);
+  reportSurfaceRef.current = reportPanelSurface;
+
+  useEffect(() => {
+    reportSurfaceRef.current(groupNumber, {
+      imageBusy,
+      videoBusy,
+      imageStatus: image.status,
+      imageError: image.error,
+      transientImageUrl: image.imageUrl ?? null,
+    });
+  }, [
+    groupNumber,
+    imageBusy,
+    videoBusy,
+    image.status,
+    image.error,
+    image.imageUrl,
+  ]);
 
   return (
     <div className="flex w-full flex-col gap-2">
@@ -1089,13 +1569,13 @@ function MediaPanel({
             url={video.videoUrl}
             error={video.error}
             prompt={videoPrompt}
-            hasReferences={referenceImages.length > 0}
+            hasReferences={videoReferenceImages.length > 0}
             onGenerate={() =>
               video.generate(
                 videoPrompt,
                 klingShots ?? null,
                 null,
-                referenceImages
+                videoReferenceImages
               )
             }
           />
@@ -1106,8 +1586,8 @@ function MediaPanel({
         <div className="text-sm text-white/30">
           {tab === "image"
             ? "16:9 · 2K storyboard · preview only"
-            : referenceImages.length > 0
-            ? `16:9 · 720p · 15s · ref-to-video (${referenceImages.length})`
+            : videoReferenceImages.length > 0
+            ? `16:9 · 720p · 15s · ref-to-video (${videoReferenceImages.length})`
             : "16:9 · 720p · 15s · text-to-video"}
         </div>
         <div className="flex items-center gap-3">
@@ -1166,7 +1646,7 @@ function MediaPanel({
                         videoPrompt,
                         klingShots ?? null,
                         null,
-                        referenceImages
+                        videoReferenceImages
                       )
                     }
                     className="text-sm text-white/40 hover:text-white/70 transition cursor-pointer"
@@ -1474,12 +1954,10 @@ function PlayerModal({ videos, onClose }: PlayerModalProps) {
 function PlayIcon() {
   return (
     <svg
-      width="10"
-      height="10"
       viewBox="0 0 24 24"
       fill="currentColor"
       aria-hidden="true"
-      className="shrink-0"
+      className="size-4 shrink-0"
     >
       <path d="M8 5v14l11-7z" />
     </svg>
@@ -1489,8 +1967,6 @@ function PlayIcon() {
 function DownloadIcon() {
   return (
     <svg
-      width="10"
-      height="10"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -1498,7 +1974,7 @@ function DownloadIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      className="shrink-0"
+      className="size-4 shrink-0"
     >
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
       <polyline points="7 10 12 15 17 10" />
