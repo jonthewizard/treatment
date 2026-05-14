@@ -2,16 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsonrepair } from "jsonrepair";
 
 export const dynamic = "force-dynamic";
-// Long, detailed shotlists (30+ shots, dense cinematographic prose) can
-// run 4–6 minutes end-to-end. At maxDuration = 300 the Vercel Fluid
-// function gets killed at exactly 300s, our open socket to Anthropic
-// drops, and Anthropic logs a 499 "Client disconnected" — the browser
-// then sees the SSE stream end mid-payload ("Stream ended before
-// completion"). 800s is the Pro-plan ceiling for Fluid Compute. Hobby
-// silently caps at 300s; Enterprise allows 900s. Streaming keeps bytes
-// flowing so proxy idle-timeouts are not a concern; this cap exists
-// purely to bound long generations.
-export const maxDuration = 800;
+// 300s is the hard ceiling on Vercel Hobby (Pro allows 800s, Enterprise
+// 900s — bump this when upgrading the plan). To keep generations inside
+// the cap we rely on (a) an explicit Runtime in the input which Claude
+// uses to bound shot count, (b) max_tokens: 32000 below as a hard output
+// cap, and (c) a SHOT COUNT CEILING in the system prompt. Streaming
+// keeps bytes flowing so proxy idle-timeouts are not a concern; this
+// duration cap exists purely to bound long generations.
+export const maxDuration = 300;
 
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 

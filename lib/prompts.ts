@@ -202,6 +202,12 @@ LOCATION COUNT RULES — STRICT
 - Different lighting, weather, or framing of an already-defined location stays on the same TAG. Only invent a new TAG when the architecture/geography genuinely changes.
 - If you find yourself wanting a 7th location, fold it into an existing one or cut the beat.
 
+SHOT COUNT CEILING — STRICT
+- HARD CAP: never emit more than 24 individual shots across all groups combined, regardless of song length. The sum of every "shots" array length MUST be ≤ 24.
+- When RUNTIME is supplied in the user prompt, runtime math takes precedence (sum durations to exactly that total). Honor both rules by using longer shots / fewer groups, not by exceeding the cap.
+- When RUNTIME is NOT supplied, prefer fewer, longer, denser shots over many short ones. A tight 12-shot treatment lands harder than a 40-shot tour.
+- Quality beats quantity — every shot must justify its existence. If you find yourself wanting a 25th shot, merge two beats, cut a redundant one, or extend an existing shot's duration.
+
 GROUPING RULES
 - Each group's shots must sum to exactly "seconds" total (≤15s per group).
 - Groups play as one continuous Kling generation — keep visual continuity within a group.
@@ -409,6 +415,12 @@ LOCATION COUNT RULES — STRICT
 - HARD CAP: never exceed 6 named locations across the entire treatment.
 - IDEAL: 1–4 named locations. One strong location used inventively is better than five thin ones.
 - Reuse existing location TAGs. Different lighting, weather, or framing of an already-defined location stays on the same TAG.
+
+SHOT COUNT CEILING — STRICT
+- HARD CAP: never emit more than 24 shots total. In detailed mode every group contains exactly one shot, so the "groups" array length MUST be ≤ 24.
+- When RUNTIME is supplied in the user prompt, runtime math takes precedence (sum durations to exactly that total). Honor both rules by using longer per-shot durations, not by exceeding the cap.
+- When RUNTIME is NOT supplied, prefer fewer, longer, denser shots over many short ones. A tight 12-shot treatment lands harder than a 40-shot tour.
+- Quality beats quantity — every shot must justify its existence. If you find yourself wanting a 25th shot, merge two beats, cut a redundant one, or extend an existing shot's duration.
 
 SHOT STRUCTURE — ONE SHOT PER GROUP, INDIVIDUAL DURATIONS
 This is the core difference from multi-shot mode:
