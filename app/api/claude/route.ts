@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // duration cap exists purely to bound long generations.
 export const maxDuration = 300;
 
-const CLAUDE_MODEL = "claude-sonnet-4-6";
+const CLAUDE_MODEL = "claude-opus-4-7";
 
 // Parse pipeline (each step only runs if the previous one failed):
 //  1) strip code-fence markers and any leading non-JSON prose; try parse.
@@ -248,7 +248,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Sonnet 4.6 supports up to 64k output tokens, but on Vercel Hobby
+    // Claude 4.x models support large output ceilings, but on Vercel Hobby
     // we are capped at a 300s function wall and at ~50-80 tok/s output
     // a 32k cap is the realistic upper bound that can finish before the
     // function gets killed. Shotlist responses are verbose by design
@@ -257,7 +257,7 @@ export async function POST(req: NextRequest) {
     // request typically lands at ~10-18k tokens, so 32k leaves comfortable
     // headroom without inviting runaway generations.
     //
-    // Sonnet 4.6+ rejects requests that set both `temperature` and `top_p`.
+    // Claude 4.x rejects requests that set both `temperature` and `top_p`.
     // Keep temperature only — it is also the knob required for extended
     // thinking compatibility on this model family (must be exactly 1).
     const body: Record<string, unknown> = {

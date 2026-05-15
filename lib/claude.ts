@@ -11,66 +11,24 @@ import type {
   Location,
 } from "@/types";
 import {
-  IDEAS_SYS,
+  IDEA_SYS,
   SHOTLIST_SYS,
   DETAILED_SHOTLIST_SYS,
   OUTLINE_SYS,
   EXPAND_SYS,
+  KLING_MAX_SHOT_PROMPT_CHARS,
 } from "@/lib/prompts";
 import { parseLyrics } from "@/lib/lyrics";
 
-function nonce() {
-  return Math.random().toString(36).slice(2, 8);
+function clampKlingShotPrompt(raw: string): string {
+  const t = raw.trim();
+  const chars = [...t];
+  if (chars.length <= KLING_MAX_SHOT_PROMPT_CHARS) return t;
+  return chars.slice(0, KLING_MAX_SHOT_PROMPT_CHARS).join("");
 }
 
-const AESTHETIC_NUDGES = [
-  "surreal and dreamlike, embracing non-literal visuals",
-  "gritty documentary realism, handheld and unpolished",
-  "abstract and non-narrative, driven by movement and texture",
-  "high-concept — one bold metaphor sustained throughout",
-  "nostalgic and analog, referencing a specific past era",
-  "futuristic and synthetic, unfamiliar worlds",
-  "minimalist — one location, restricted palette, strict constraints",
-  "epic and world-building, multiple locations and scale",
-  "tactile and bodily, skin and fabric and material close-ups",
-  "architectural and geometric, symmetry and space",
-  "chaotic and maximalist, layered imagery and saturation",
-  "noir and shadow-heavy, chiaroscuro lighting",
-  "sun-bleached and overexposed, high-key daylight",
-  "mythic and folkloric, archetypes and ritual imagery",
-  "industrial and brutalist, concrete and raw materials",
-];
-
-const NARRATIVE_NUDGES = [
-  "performance-driven, the artist front and centre",
-  "character-driven narrative with a clear protagonist arc",
-  "ensemble-driven, multiple characters whose paths intersect",
-  "kinetic and action-forward, fast motion and chase energy",
-  "quiet and contemplative, long takes and stillness",
-  "structured as a single unbroken journey or procession",
-  "structured around a transformation or metamorphosis",
-  "built around a ritual, ceremony, or repeated action",
-  "anchored to one object or motif that recurs",
-  "framed as memory fragments, non-linear vignettes",
-  "framed as a waking dream that slowly unravels",
-  "built as a hypothetical — 'what if' reality shifted",
-];
-
-const LENS_NUDGES = [
-  "from the point of view of an outsider observing",
-  "from deep inside the protagonist's inner world",
-  "from the vantage of someone or something left behind",
-  "shot as if the camera itself were a character",
-  "with the subject always just out of reach of the frame",
-  "with the world reacting to the subject rather than vice versa",
-  "emphasising what is absent or unseen",
-  "emphasising group dynamics and crowds",
-  "emphasising solitude and single figures in space",
-  "emphasising hands, gestures, small physical details",
-];
-
-function pick<T>(arr: readonly T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+function nonce() {
+  return Math.random().toString(36).slice(2, 8);
 }
 
 async function callClaude(
@@ -197,6 +155,44 @@ async function callClaudeStream(
   return jsonMode ? finalResult : finalText;
 }
 
+const PRIOR_PITCH_SNIPPET_CHARS = 320;
+
+function truncateForPrompt(s: string, max: number): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+function formatPriorIdeasBlock(prior: Idea[]): string {
+  return prior
+    .map(
+      (idea, i) =>
+        `${i + 1}. **${idea.angle}** — ${truncateForPrompt(
+          idea.pitch,
+          PRIOR_PITCH_SNIPPET_CHARS
+        )}`
+    )
+    .join("\n");
+}
+
+function sanitizeSingleIdea(raw: unknown): Idea | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw))
+    return null;
+  const o = raw as Record<string, unknown>;
+  if (Array.isArray(o.ideas) && o.ideas.length > 0) {
+    return sanitizeSingleIdea(o.ideas[0]);
+  }
+  const angleRaw = o.angle;
+  const pitchRaw = o.pitch;
+  if (typeof angleRaw !== "string" || typeof pitchRaw !== "string")
+    return null;
+  const angle = angleRaw.replace(/\s+/g, " ").trim();
+  const pitch = pitchRaw.replace(/\s+/g, " ").trim();
+  if (!angle || !pitch) return null;
+  return { angle, pitch };
+}
+
+/** Three sequential API calls — one idea each so each generation is independent; later calls see prior ideas to stay distinct. */
 export async function genIdeas(input: SongInput): Promise<Idea[]> {
   const concept = input.concept?.trim() ?? "";
   const lyrics = input.lyrics?.trim() ?? "";
@@ -205,43 +201,49 @@ export async function genIdeas(input: SongInput): Promise<Idea[]> {
       "Add lyrics or a concept (or both) before generating ideas."
     );
   }
-  const sections: string[] = [
-    `Artist: ${input.artist}\nSong: ${input.title}\nGenre: ${input.genre || "n/a"}`,
-  ];
-  if (lyrics) sections.push(`LYRICS:\n${lyrics}`);
-  if (concept) {
-    sections.push(
-      lyrics
-        ? `CONCEPT (the director's intent — develop each idea around this while staying grounded in the lyrics):\n${concept}`
-        : `CONCEPT (the director's intent — build each idea directly on this; no lyrics were supplied):\n${concept}`
-    );
-  } else {
-    sections.push(
-      `For these three ideas, vary across:\n- ${pick(AESTHETIC_NUDGES)}\n- ${pick(NARRATIVE_NUDGES)}\n- ${pick(LENS_NUDGES)}`
-    );
-  }
-  sections.push(`[${nonce()}]`);
-  const prompt = sections.join("\n\n");
-  const result = (await callClaude(prompt, IDEAS_SYS, true)) as {
-    ideas?: unknown;
-  };
-  return sanitizeIdeas(result?.ideas);
-}
 
-function sanitizeIdeas(raw: unknown): Idea[] {
-  if (!Array.isArray(raw)) return [];
-  const out: Idea[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const angleRaw = (item as { angle?: unknown }).angle;
-    const pitchRaw = (item as { pitch?: unknown }).pitch;
-    if (typeof angleRaw !== "string" || typeof pitchRaw !== "string") continue;
-    const angle = angleRaw.replace(/\s+/g, " ").trim();
-    const pitch = pitchRaw.replace(/\s+/g, " ").trim();
-    if (!angle || !pitch) continue;
-    out.push({ angle, pitch });
+  const ideas: Idea[] = [];
+
+  for (let slot = 1; slot <= 3; slot++) {
+    const sections: string[] = [
+      `Artist: ${input.artist}\nSong: ${input.title}\nGenre: ${input.genre || "n/a"}`,
+    ];
+    if (lyrics) sections.push(`LYRICS:\n${lyrics}`);
+    if (concept) {
+      sections.push(
+        lyrics
+          ? `CONCEPT (the director's intent — develop this idea around this while staying grounded in the lyrics):\n${concept}`
+          : `CONCEPT (the director's intent — build this idea directly on this; no lyrics were supplied):\n${concept}`
+      );
+    }
+
+    sections.push(
+      `PITCH LEVEL — TREATMENT ONLY\nWrite a high-level creative direction (conceit, governing rule, world, emotional thesis). Do not write shots: no scene beats, no camera scale, lens, blocking, or lighting micromanagement. If you state one formal constraint, state it once as the idea of the film — not as a list of frames.`
+    );
+
+    if (slot === 1) {
+      sections.push(
+        `GENERATION CONTEXT\nYou are proposing idea 1 of 3 for this song. Two more ideas will be generated in separate calls — commit fully to ONE bold direction here.`
+      );
+    } else {
+      sections.push(
+        `GENERATION CONTEXT\nYou are proposing idea ${slot} of 3.\n\nPRIOR IDEAS (locked — your new angle and pitch must be substantially different from each):\n${formatPriorIdeasBlock(ideas)}`
+      );
+    }
+
+    sections.push(`[${nonce()}]`);
+
+    const raw = await callClaude(sections.join("\n\n"), IDEA_SYS, true);
+    const idea = sanitizeSingleIdea(raw);
+    if (!idea) {
+      throw new Error(
+        `Could not parse idea ${slot} of 3 from the model response. Try again.`
+      );
+    }
+    ideas.push(idea);
   }
-  return out.slice(0, 3);
+
+  return ideas;
 }
 
 // Accepts a handful of common shorthand formats so a typo in the Runtime
@@ -467,7 +469,8 @@ function sanitizeShots(raw: unknown): ShotEntry[] {
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const s = item as Record<string, unknown>;
-    const prompt = typeof s.prompt === "string" ? s.prompt.trim() : "";
+    const promptRaw = typeof s.prompt === "string" ? s.prompt.trim() : "";
+    const prompt = clampKlingShotPrompt(promptRaw);
     const duration = typeof s.duration === "string" ? s.duration.trim() : "";
     if (!prompt || !duration) continue;
     out.push({ prompt, duration });
