@@ -32,25 +32,9 @@ Commit to ONE strong direction. Pick a clear stance on several of the axes above
 
 ANTI-CLICHE FILTER — read this carefully before writing anything
 The following are EXHAUSTED and forbidden as the central idea. They may appear as one element in a denser concept, but never as the load-bearing premise:
-- Mirrors, reflections in glass or puddles, broken mirrors
-- Holograms, glitches, scan lines, VHS distortion, CRT static
 - AI imagery, cyberpunk, robots, androids, neural-net visuals
 - Feathers, slow-falling petals, slow-motion rain on a face
-- Crying in close-up, smudged mascara, single tear
-- Driving at night through a city, headlights through windshield, dashboard POV
-- Abandoned warehouses, abandoned malls, abandoned anything as default location
-- Burning photographs, burning letters, burning a wedding dress
-- Walking down an empty road into the sunset
-- Slow-motion crowd parting around a stationary protagonist
-- Levitation, floating hair underwater, person submerged in a bathtub fully clothed
-- Neon signs reflected in wet asphalt as the establishing shot
-- Running through a forest with handheld camera
-- Choreographed dance in an empty parking lot
-- Found-footage home-video nostalgia montage
-- Smashing a TV, smashing a guitar, smashing fruit in slow motion
 - Hands reaching toward a light source
-- Synchronised swimmers, synchronised anything as easy metaphor
-- Roses, butterflies, moths, snakes as easy symbol load-bearing
 - The artist standing in a field, on a rooftop, in a hallway, lip-syncing (you are already forbidden from depicting the artist — but also do not invent a stand-in performer)
 - Bands or any musician playing instruments or singing
 
