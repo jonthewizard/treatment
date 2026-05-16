@@ -165,8 +165,8 @@ export function InputStage({ input, setInput, onNext }: InputStageProps) {
           value={input.concept}
           onChange={(e) => setInput({ ...input, concept: e.target.value })}
           placeholder="e.g. a slow-motion descent through neon-lit corridors, ending in a single static portrait"
-          rows={4}
-          className="w-full resize-none bg-white/[0.13] border border-white/10 rounded-2xl p-4 text-sm leading-relaxed text-white placeholder:text-white/30 outline-none focus:border-white/30 transition-colors shadow-[0px_4px_24px_rgba(0,0,0,0.08)]"
+          rows={3}
+          className="w-full resize-none bg-white/[0.13] border border-white/10 rounded-xl px-3 py-3 text-sm leading-snug text-white placeholder:text-white/30 outline-none focus:border-white/30 transition-colors shadow-[0px_4px_24px_rgba(0,0,0,0.08)]"
         />
       </div>
       <div className="mt-5">
@@ -182,8 +182,8 @@ export function InputStage({ input, setInput, onNext }: InputStageProps) {
           value={input.lyrics}
           onChange={(e) => setInput({ ...input, lyrics: e.target.value })}
           placeholder={"[Verse 1]\nPaste full lyrics\n\n[Chorus]\nWith section labels"}
-          rows={18}
-          className="w-full resize-none bg-white/[0.13] border border-white/10 rounded-2xl p-4 text-sm leading-relaxed text-white placeholder:text-white/30 outline-none focus:border-white/30 transition-colors shadow-[0px_4px_24px_rgba(0,0,0,0.08)]"
+          rows={14}
+          className="w-full resize-none bg-white/[0.13] border border-white/10 rounded-xl px-3 py-3 text-sm leading-snug text-white placeholder:text-white/30 outline-none focus:border-white/30 transition-colors shadow-[0px_4px_24px_rgba(0,0,0,0.08)]"
         />
       </div>
       <div className="mt-6 flex items-center justify-end gap-4">
