@@ -18,6 +18,7 @@ npm install
 # 2. Add your Anthropic API key
 cp .env.local.example .env.local
 # then edit .env.local and set ANTHROPIC_API_KEY=sk-ant-...
+# Optional: ANTHROPIC_MODEL or CLAUDE_MODEL overrides the Claude snapshot (defaults to Claude Opus 4.7). Try another slug from Anthropic docs if you see intermittent API 500 errors.
 
 # 3. Run dev server
 npm run dev

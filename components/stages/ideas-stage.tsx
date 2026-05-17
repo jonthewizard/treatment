@@ -76,8 +76,8 @@ export function IdeasStage({
         <Loader
           text={
             hasLyrics
-              ? "reading lyrics · finding 3 angles"
-              : "reading concept · finding 3 angles"
+              ? "reading lyrics · finding 3 treatments"
+              : "reading concept · finding 3 treatments"
           }
         />
       )}
@@ -126,7 +126,7 @@ export function IdeasStage({
           <div className="flex flex-col gap-4">
             {ideas.map((idea, i) => (
               <IdeaCard
-                key={`${idea.angle}-${i}`}
+                key={`${idea.treatmentTitle}-${i}`}
                 idea={idea}
                 canChoose={hasLyrics}
                 onChoose={() => onChoose(idea)}
@@ -165,7 +165,7 @@ function IdeaCard({ idea, canChoose, onChoose }: IdeaCardProps) {
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           <div className="font-serif text-2xl text-white leading-tight">
-            {idea.angle}
+            {idea.treatmentTitle}
           </div>
           <p className="mt-3 text-sm leading-relaxed text-white/70">
             {idea.pitch}
@@ -174,7 +174,7 @@ function IdeaCard({ idea, canChoose, onChoose }: IdeaCardProps) {
         {canChoose && (
           <div className="shrink-0">
             <Btn primary small onClick={onChoose}>
-              Use this angle →
+              Use this treatment →
             </Btn>
           </div>
         )}

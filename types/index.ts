@@ -8,7 +8,9 @@ export interface SongInput {
 }
 
 export interface Idea {
-  angle: string;
+  /** Short slide-style title for this director pitch */
+  treatmentTitle: string;
+  /** Single paragraph pitch (~150–220 words) */
   pitch: string;
 }
 

@@ -167,12 +167,32 @@ function formatPriorIdeasBlock(prior: Idea[]): string {
   return prior
     .map(
       (idea, i) =>
-        `${i + 1}. **${idea.angle}** — ${truncateForPrompt(
+        `${i + 1}. **${idea.treatmentTitle}** — ${truncateForPrompt(
           idea.pitch,
           PRIOR_PITCH_SNIPPET_CHARS
         )}`
     )
     .join("\n");
+}
+
+/** Normalize persisted or legacy API shapes (legacy used "angle" instead of treatmentTitle). */
+export function normalizeIdea(v: unknown): Idea | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const pitchRaw = o.pitch;
+  if (typeof pitchRaw !== "string") return null;
+  const pitch = pitchRaw.replace(/\s+/g, " ").trim();
+  if (!pitch) return null;
+
+  const titleRaw =
+    typeof o.treatmentTitle === "string"
+      ? o.treatmentTitle
+      : typeof o.angle === "string"
+        ? o.angle
+        : "";
+  const treatmentTitle = titleRaw.replace(/\s+/g, " ").trim();
+  if (!treatmentTitle) return null;
+  return { treatmentTitle, pitch };
 }
 
 function sanitizeSingleIdea(raw: unknown): Idea | null {
@@ -182,14 +202,7 @@ function sanitizeSingleIdea(raw: unknown): Idea | null {
   if (Array.isArray(o.ideas) && o.ideas.length > 0) {
     return sanitizeSingleIdea(o.ideas[0]);
   }
-  const angleRaw = o.angle;
-  const pitchRaw = o.pitch;
-  if (typeof angleRaw !== "string" || typeof pitchRaw !== "string")
-    return null;
-  const angle = angleRaw.replace(/\s+/g, " ").trim();
-  const pitch = pitchRaw.replace(/\s+/g, " ").trim();
-  if (!angle || !pitch) return null;
-  return { angle, pitch };
+  return normalizeIdea(raw);
 }
 
 /** Three sequential API calls — one idea each so each generation is independent; later calls see prior ideas to stay distinct. */
@@ -217,17 +230,13 @@ export async function genIdeas(input: SongInput): Promise<Idea[]> {
       );
     }
 
-    sections.push(
-      `PITCH LEVEL — TREATMENT ONLY\nWrite a high-level creative direction (conceit, governing rule, world, emotional thesis). Do not write shots: no scene beats, no camera scale, lens, blocking, or lighting micromanagement. If you state one formal constraint, state it once as the idea of the film — not as a list of frames.`
-    );
-
     if (slot === 1) {
       sections.push(
-        `GENERATION CONTEXT\nYou are proposing idea 1 of 3 for this song. Two more ideas will be generated in separate calls — commit fully to ONE bold direction here.`
+        `GENERATION CONTEXT\nYou are proposing treatment 1 of 3 for this song. Two more treatments will be generated in separate calls — commit fully to ONE bold direction here. Follow the system prompt: JSON with treatmentTitle + single pitch paragraph.`
       );
     } else {
       sections.push(
-        `GENERATION CONTEXT\nYou are proposing idea ${slot} of 3.\n\nPRIOR IDEAS (locked — your new angle and pitch must be substantially different from each):\n${formatPriorIdeasBlock(ideas)}`
+        `GENERATION CONTEXT\nYou are proposing treatment ${slot} of 3.\n\nPRIOR IDEAS (locked — your new treatmentTitle and pitch must be substantially different from each):\n${formatPriorIdeasBlock(ideas)}`
       );
     }
 
@@ -321,7 +330,7 @@ export async function genShotlist(
 Song: ${input.title}
 Genre: ${input.genre || "n/a"}
 ${totalSeconds ? `TOTAL SECONDS: ${totalSeconds}` : ""}
-${angle ? `\nDirectional angle: ${angle.angle} — ${angle.pitch}\n` : ""}
+${angle ? `\nDirector treatment (honor title and paragraph):\nTitle: ${angle.treatmentTitle}\n${angle.pitch}\n` : ""}
 LYRIC SECTIONS:
 ${sections.map((s) => `[${s.label}]\n${s.lines.join("\n")}`).join("\n\n")}
 
@@ -558,7 +567,7 @@ function buildOutlineUserPrompt(
 Song: ${input.title}
 Genre: ${input.genre || "n/a"}
 ${totalSeconds ? `TOTAL SECONDS: ${totalSeconds}` : ""}
-${angle ? `\nDirectional angle: ${angle.angle} — ${angle.pitch}\n` : ""}
+${angle ? `\nDirector treatment (honor title and paragraph):\nTitle: ${angle.treatmentTitle}\n${angle.pitch}\n` : ""}
 LYRIC SECTIONS:
 ${sections.map((s) => `[${s.label}]\n${s.lines.join("\n")}`).join("\n\n")}
 
@@ -636,7 +645,7 @@ function buildExpandUserPrompt(
 Song: ${input.title}
 Genre: ${input.genre || "n/a"}
 ${totalSeconds ? `TOTAL SECONDS: ${totalSeconds}` : ""}
-${angle ? `Directional angle: ${angle.angle} — ${angle.pitch}` : ""}
+${angle ? `Director treatment — Title: ${angle.treatmentTitle}\n${angle.pitch}` : ""}
 
 CANONICAL BIBLE (LOCKED — do not redefine, do not invent new cast or locations):
 look: ${outline.look}

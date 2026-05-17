@@ -120,7 +120,7 @@ interface ShotlistStageProps {
 }
 
 function shotlistTitle(input: SongInput, angle: Idea | null): string {
-  if (angle?.angle) return angle.angle;
+  if (angle?.treatmentTitle) return angle.treatmentTitle;
   if (input.title) return input.title;
   return "Shot List";
 }

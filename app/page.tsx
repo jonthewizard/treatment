@@ -14,7 +14,7 @@ import type {
   LocationPortrait,
 } from "@/types";
 import { saveProject, loadProject } from "@/lib/storage";
-import { genShotlistTwoPhase } from "@/lib/claude";
+import { genShotlistTwoPhase, normalizeIdea } from "@/lib/claude";
 import { InputStage } from "@/components/stages/input-stage";
 import { IdeasStage } from "@/components/stages/ideas-stage";
 import { ShotlistStage } from "@/components/stages/shotlist-stage";
@@ -128,16 +128,15 @@ export default function Home() {
     if (p) {
       const loadedInput: SongInput = { ...EMPTY, ...(p.input ?? {}) };
       const legacySingle = (p as unknown as { idea?: Idea | null }).idea;
-      const isValidIdea = (v: unknown): v is Idea =>
-        !!v &&
-        typeof (v as Idea).angle === "string" &&
-        typeof (v as Idea).pitch === "string";
       const loadedIdeas: Idea[] = Array.isArray(p.ideas)
-        ? p.ideas.filter(isValidIdea)
-        : isValidIdea(legacySingle)
-        ? [legacySingle]
-        : [];
-      const loadedAngle = p.angle || null;
+        ? p.ideas
+            .map((item) => normalizeIdea(item))
+            .filter((x): x is Idea => x !== null)
+        : (() => {
+            const one = normalizeIdea(legacySingle);
+            return one ? [one] : [];
+          })();
+      const loadedAngle = normalizeIdea(p.angle) ?? null;
       // The "Use multi shot" toggle always starts off on page load — the user
       // has to opt back in each session. Saved value is intentionally ignored.
       const loadedShotMode: ShotMode = "detailed";

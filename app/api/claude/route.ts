@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jsonrepair } from "jsonrepair";
+import { tryParseJson } from "@/lib/parse-llm-json";
 
 export const dynamic = "force-dynamic";
 // 300s is the hard ceiling on Vercel Hobby (Pro allows 800s, Enterprise
@@ -11,161 +11,84 @@ export const dynamic = "force-dynamic";
 // duration cap exists purely to bound long generations.
 export const maxDuration = 300;
 
-const CLAUDE_MODEL = "claude-opus-4-7";
+/** Default snapshot; override with ANTHROPIC_MODEL or CLAUDE_MODEL if a model misbehaves. */
+const DEFAULT_CLAUDE_MODEL = "claude-opus-4-7";
 
-// Parse pipeline (each step only runs if the previous one failed):
-//  1) strip code-fence markers and any leading non-JSON prose; try parse.
-//  2) light hand-rolled cleanup (smart quotes, trailing commas, control chars); try parse.
-//  3) jsonrepair — handles bracket-type swaps, missing closers, unescaped quotes,
-//     single-quoted strings, comments, unquoted keys, and most other LLM JSON quirks.
-//  4) hand-rolled inner-quote escaper as a last resort.
-//  5) truncated-array recovery — finds the last fully-closed object and seals the array.
-function tryParseJson(raw: string): unknown {
-  let s = raw.replace(/```json\s*|\s*```/g, "").trim();
-  const objStart = s.indexOf("{");
-  const arrStart = s.indexOf("[");
-  if (arrStart !== -1 && (objStart === -1 || arrStart < objStart)) {
-    s = s.slice(arrStart);
-  } else if (objStart !== -1) {
-    s = s.slice(objStart);
-  }
-
-  try {
-    return JSON.parse(s);
-  } catch {}
-
-  const repaired = s
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/,(\s*[}\]])/g, "$1")
-    .replace(/[\u0000-\u0008\u000B-\u001F]/g, " ");
-
-  try {
-    return JSON.parse(repaired);
-  } catch {}
-
-  try {
-    return JSON.parse(jsonrepair(repaired));
-  } catch {}
-
-  try {
-    return JSON.parse(escapeInnerQuotes(repaired));
-  } catch {}
-
-  const truncated = repairTruncatedArray(repaired);
-  if (truncated) {
-    try {
-      return JSON.parse(truncated);
-    } catch {}
-    try {
-      return JSON.parse(jsonrepair(truncated));
-    } catch {}
-    try {
-      return JSON.parse(escapeInnerQuotes(truncated));
-    } catch {}
-  }
-
-  try {
-    return JSON.parse(jsonrepair(s));
-  } catch (e) {
-    const err = e as Error;
-    const pos = (err.message.match(/position (\d+)/) || [])[1];
-    const snippet = pos
-      ? repaired.slice(Math.max(0, +pos - 60), +pos + 60)
-      : repaired.slice(0, 300);
-    throw new Error(`JSON parse failed: ${err.message}\n...${snippet}...`);
-  }
+function getClaudeModel(): string {
+  return (
+    process.env.ANTHROPIC_MODEL?.trim() ||
+    process.env.CLAUDE_MODEL?.trim() ||
+    DEFAULT_CLAUDE_MODEL
+  );
 }
 
-function repairTruncatedArray(s: string): string | null {
-  const trimmed = s.trim();
-  if (!trimmed.startsWith("[")) return null;
-
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let lastTopLevelClose = -1;
-
-  for (let i = 0; i < trimmed.length; i++) {
-    const c = trimmed[i];
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    if (inString) {
-      if (c === "\\") {
-        escape = true;
-        continue;
-      }
-      if (c === '"') inString = false;
-      continue;
-    }
-    if (c === '"') {
-      inString = true;
-      continue;
-    }
-    if (c === "{" || c === "[") {
-      depth++;
-    } else if (c === "}" || c === "]") {
-      depth--;
-      if (c === "}" && depth === 1) {
-        lastTopLevelClose = i;
-      }
-      if (depth === 0 && c === "]") {
-        return trimmed.slice(0, i + 1);
-      }
-    }
-  }
-
-  if (lastTopLevelClose > 0) {
-    return trimmed.slice(0, lastTopLevelClose + 1) + "]";
-  }
-  return null;
+function isAnthropicTransientStatus(code: number): boolean {
+  return code === 500 || code === 502 || code === 503 || code === 529;
 }
 
-function escapeInnerQuotes(s: string): string {
-  let out = "";
-  let inString = false;
-  let escape = false;
+/** Pull nested message + request_id from Anthropic JSON error bodies. */
+function formatAnthropicHttpError(rawText: string): string {
+  const normalized = rawText.replace(/^\ufeff/, "").trim();
+  const truncated = normalized.slice(0, 800);
+  const brace = normalized.indexOf("{");
+  const jsonSlice = brace >= 0 ? normalized.slice(brace) : normalized;
 
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (escape) {
-      out += c;
-      escape = false;
-      continue;
-    }
-    if (c === "\\") {
-      out += c;
-      escape = true;
-      continue;
-    }
-    if (c === '"') {
-      if (!inString) {
-        inString = true;
-        out += c;
-        continue;
-      }
-      let j = i + 1;
-      while (j < s.length && /\s/.test(s[j])) j++;
-      const next = s[j] as string | undefined;
-      if (
-        next === "," ||
-        next === "}" ||
-        next === "]" ||
-        next === ":" ||
-        next === undefined
-      ) {
-        inString = false;
-        out += c;
-      } else {
-        out += '\\"';
-      }
-      continue;
-    }
-    out += c;
+  const parseShape = (
+    raw: unknown
+  ): {
+    msg: string;
+    rid: string;
+  } => {
+    if (!raw || typeof raw !== "object") return { msg: "", rid: "" };
+    const j = raw as {
+      error?: { type?: string; message?: string };
+      message?: string;
+      request_id?: string;
+    };
+    const msg =
+      typeof j?.error?.message === "string"
+        ? j.error.message
+        : typeof j?.message === "string"
+          ? j.message
+          : "";
+    const rid =
+      typeof j?.request_id === "string"
+        ? j.request_id
+        : "";
+    return { msg, rid };
+  };
+
+  try {
+    const { msg, rid } = parseShape(JSON.parse(jsonSlice));
+    if (msg) return rid ? `${msg} (request_id: ${rid})` : msg;
+  } catch {
+    /* fall through — body may include non-JSON prefix or chunked noise */
   }
-  return out;
+
+  try {
+    const { msg, rid } = parseShape(JSON.parse(normalized));
+    if (msg) return rid ? `${msg} (request_id: ${rid})` : msg;
+  } catch {
+    /* continue to regex heuristic */
+  }
+
+  let msgMatch = normalized.match(
+    /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/
+  );
+  const ridMatch = normalized.match(/"request_id"\s*:\s*"([^"]+)"/);
+  if (!msgMatch) {
+    msgMatch = normalized.match(
+      /"type"\s*:\s*"[^"]*",\s*"message"\s*:\s*"((?:[^"\\]|\\.)*)"/
+    );
+  }
+  let msg =
+    typeof msgMatch?.[1] === "string"
+      ? msgMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+      : "";
+  const rid = typeof ridMatch?.[1] === "string" ? ridMatch[1] : "";
+  if (!msg && !rid) return truncated || "Unknown error";
+  msg = msg || "Upstream error";
+  return rid ? `${msg} (request_id: ${rid})` : msg;
 }
 
 function parseRetryAfter(header: string | null): number | null {
@@ -179,8 +102,9 @@ async function callWithRetry(
   headers: Record<string, string>,
   body: Record<string, unknown>
 ): Promise<{ res: Response; rawText: string }> {
-  let attempt = 0;
-  const maxAttempts = 2;
+  let rateAttempt = 0;
+  const maxRateRetries = 2;
+  let transientAttempt = 0;
   while (true) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -190,11 +114,21 @@ async function callWithRetry(
     });
     const rawText = await res.text();
 
-    if (res.status === 429 && attempt < maxAttempts) {
+    if (res.status === 429 && rateAttempt < maxRateRetries) {
       const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
       const waitMs = retryAfter != null ? retryAfter * 1000 : 8000;
       await new Promise((r) => setTimeout(r, waitMs));
-      attempt++;
+      rateAttempt++;
+      continue;
+    }
+
+    if (
+      isAnthropicTransientStatus(res.status) &&
+      transientAttempt < 2
+    ) {
+      transientAttempt++;
+      const waitMs = transientAttempt === 1 ? 3200 : 8500;
+      await new Promise((r) => setTimeout(r, waitMs));
       continue;
     }
 
@@ -209,8 +143,9 @@ async function callStreamWithRetry(
   body: Record<string, unknown>,
   signal?: AbortSignal
 ): Promise<Response> {
-  let attempt = 0;
-  const maxAttempts = 2;
+  let rateAttempt = 0;
+  const maxRateRetries = 2;
+  let transientAttempt = 0;
   while (true) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -220,7 +155,7 @@ async function callStreamWithRetry(
       signal,
     });
 
-    if (res.status === 429 && attempt < maxAttempts) {
+    if (res.status === 429 && rateAttempt < maxRateRetries) {
       const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
       const waitMs = retryAfter != null ? retryAfter * 1000 : 8000;
       // Drain & discard so the connection can be reused.
@@ -228,7 +163,17 @@ async function callStreamWithRetry(
         await res.body?.cancel();
       } catch {}
       await new Promise((r) => setTimeout(r, waitMs));
-      attempt++;
+      rateAttempt++;
+      continue;
+    }
+
+    if (isAnthropicTransientStatus(res.status) && transientAttempt < 2) {
+      try {
+        await res.body?.cancel();
+      } catch {}
+      transientAttempt++;
+      const waitMs = transientAttempt === 1 ? 3200 : 8500;
+      await new Promise((r) => setTimeout(r, waitMs));
       continue;
     }
 
@@ -261,7 +206,7 @@ export async function POST(req: NextRequest) {
     // Keep temperature only — it is also the knob required for extended
     // thinking compatibility on this model family (must be exactly 1).
     const body: Record<string, unknown> = {
-      model: CLAUDE_MODEL,
+      model: getClaudeModel(),
       max_tokens: 32000,
       temperature: 1,
       messages: [{ role: "user", content: prompt }],
@@ -298,8 +243,11 @@ export async function POST(req: NextRequest) {
           { status: 429 }
         );
       }
+      const detail = formatAnthropicHttpError(rawText);
       return NextResponse.json(
-        { error: `Anthropic API error ${res.status}: ${rawText.slice(0, 300)}` },
+        {
+          error: `Anthropic API error ${res.status}: ${detail}`,
+        },
         { status: 500 }
       );
     }
@@ -392,9 +340,10 @@ async function streamingResponse(opts: {
         { status: 429 }
       );
     }
+    const detail = formatAnthropicHttpError(errText);
     return NextResponse.json(
       {
-        error: `Anthropic API error ${upstream.status}: ${errText.slice(0, 300)}`,
+        error: `Anthropic API error ${upstream.status}: ${detail}`,
       },
       { status: 500 }
     );
