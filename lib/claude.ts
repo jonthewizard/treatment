@@ -31,6 +31,33 @@ function nonce() {
   return Math.random().toString(36).slice(2, 8);
 }
 
+/** Metadata header — avoids leading with `Artist:` which primes the model to repeat the name in creative output. */
+function buildTrackMetadataHeader(input: SongInput): string {
+  const performer = input.artist?.trim();
+  const lines = [`Track title: ${input.title}`, `Genre: ${input.genre || "n/a"}`];
+  if (performer) {
+    lines.push(
+      `Credited performer (metadata only — never echo in creative output; follow PERFORMER ANONYMITY below): ${performer}`
+    );
+  }
+  return lines.join("\n");
+}
+
+/** User-message reinforcement; pairs with RECORDING_ARTIST_ANONYMITY_BLOCK in shot system prompts and IDEA_SYS HARD BANS. */
+function buildPerformerAnonymityUserBlock(artist: string): string {
+  const a = artist.trim();
+  if (!a) {
+    return `PERFORMER ANONYMITY (mandatory):
+- Do not name, depict as identifiable, or visually imitate any real recording artist or celebrity in titles, prose, TAGs, cast descriptions, locations, or shot prompts.
+- Use invented protagonists with neutral ALL-CAPS TAGs only; no biography-backed visual shorthand that maps to a known musician.`;
+  }
+  return `PERFORMER ANONYMITY (mandatory):
+- "${a}" is supplied ONLY so you know which catalogue this session refers to. Do NOT output that string anywhere (any casing), nicknames, initials-as-name, obvious shortenings, or unmistakable biography shorthand — not in treatmentTitle, pitch, TAG names, descriptions, group prompts, imagePrompts, or shots[].prompt.
+- Do not visually describe anyone to resemble "${a}": no matching likeness, signature hairstyle, facial hair, body type, tattoos-as-known, iconic wardrobe eras, or tour/visual-era shorthand readable as them.
+- No indirect identification: hometown clues as joke, album/single titles as props tied to them, logos, merchandise, magazine-cover setups, or award-show performance tropes pointed at them.
+- Concert, rehearsal, idol lip-sync, or band-performance fantasies must involve invented protagonists only — never framed as the credited performer above appearing as themselves.`;
+}
+
 async function callClaude(
   prompt: string,
   system: string,
@@ -219,7 +246,8 @@ export async function genIdeas(input: SongInput): Promise<Idea[]> {
 
   for (let slot = 1; slot <= 3; slot++) {
     const sections: string[] = [
-      `Artist: ${input.artist}\nSong: ${input.title}\nGenre: ${input.genre || "n/a"}`,
+      buildTrackMetadataHeader(input),
+      buildPerformerAnonymityUserBlock(input.artist ?? ""),
     ];
     if (lyrics) sections.push(`LYRICS:\n${lyrics}`);
     if (concept) {
@@ -326,9 +354,8 @@ export async function genShotlist(
 `
     : "";
 
-  const prompt = `Artist: ${input.artist}
-Song: ${input.title}
-Genre: ${input.genre || "n/a"}
+  const prompt = `${buildTrackMetadataHeader(input)}
+${buildPerformerAnonymityUserBlock(input.artist ?? "")}
 ${totalSeconds ? `TOTAL SECONDS: ${totalSeconds}` : ""}
 ${angle ? `\nDirector treatment (honor title and paragraph):\nTitle: ${angle.treatmentTitle}\n${angle.pitch}\n` : ""}
 LYRIC SECTIONS:
@@ -563,9 +590,8 @@ function buildOutlineUserPrompt(
 `
     : "";
 
-  return `Artist: ${input.artist}
-Song: ${input.title}
-Genre: ${input.genre || "n/a"}
+  return `${buildTrackMetadataHeader(input)}
+${buildPerformerAnonymityUserBlock(input.artist ?? "")}
 ${totalSeconds ? `TOTAL SECONDS: ${totalSeconds}` : ""}
 ${angle ? `\nDirector treatment (honor title and paragraph):\nTitle: ${angle.treatmentTitle}\n${angle.pitch}\n` : ""}
 LYRIC SECTIONS:
@@ -641,9 +667,8 @@ function buildExpandUserPrompt(
     )
     .join("\n");
 
-  return `Artist: ${input.artist}
-Song: ${input.title}
-Genre: ${input.genre || "n/a"}
+  return `${buildTrackMetadataHeader(input)}
+${buildPerformerAnonymityUserBlock(input.artist ?? "")}
 ${totalSeconds ? `TOTAL SECONDS: ${totalSeconds}` : ""}
 ${angle ? `Director treatment — Title: ${angle.treatmentTitle}\n${angle.pitch}` : ""}
 

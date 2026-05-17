@@ -718,7 +718,7 @@ export function ShotlistStage({
             {/* Grid stays mounted alongside list so list MediaPanels keep polling. */}
             <div
               className={`min-h-0 flex-1 overflow-auto pb-4 ${
-                shotsView === "grid" ? "grid" : "hidden"
+                shotsView === "grid" ? "grid content-start items-start" : "hidden"
               } grid-cols-3 gap-3`}
             >
               {groupsWithPrompts.map(({ group, imagePrompt }, idx) => {
