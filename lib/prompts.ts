@@ -44,7 +44,7 @@ HARD BANS:
 - If the paragraph runs past ~220 words it has stopped being a pitch. Cut.
 - NEVER make the pitch a literal translation of the lyrics — stay more abstract than line-by-line illustration.
 - PERFORMER ANONYMITY & LIKENESS (mandatory): obey the PERFORMER ANONYMITY block in the user message exactly. The credited recording artist must never appear in treatmentTitle or pitch as text; never imply their real likeness, biography, signature style, public persona, or stage identity; never cast them as an on-camera protagonist or “playing themselves”. Invent anonymous figures only if people appear. Avoid concert, rehearsal, idol lip-sync, or band-performance setups that read as the real musician.
-
+- NO locked-off concepts 
 ---
 JSON ENVELOPE (required by this application only): respond with a single JSON object and nothing else. Keys: "treatmentTitle" — a concise title for this treatment (no trailing period); "pitch" — your paragraph exactly as specified above. Output only that JSON object; use straight double quotes and valid JSON escaping.`;
 
