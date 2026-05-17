@@ -79,6 +79,22 @@ type MediaPanelSurface = {
   transientImageUrl: string | null;
 };
 
+/** Same URL logic as the shots grid thumbnail (persisted vs in-flight Nano Banana). */
+function resolveGridStoryboardDisplayUrl(
+  snap: MediaPanelSurface | undefined,
+  persistedUrl: string | null
+): string | null {
+  if (!snap && persistedUrl) return persistedUrl;
+  if (!snap) return null;
+  const imageBusyInner =
+    snap.imageBusy ||
+    snap.imageStatus === "starting" ||
+    snap.imageStatus === "processing";
+  if (imageBusyInner) return null;
+  if (snap.imageStatus === "failed") return null;
+  return snap.transientImageUrl ?? persistedUrl ?? null;
+}
+
 type MediaPanelHandle = {
   generateImage: () => void;
   generateVideo: () => void;
@@ -155,6 +171,8 @@ export function ShotlistStage({
   const [editedCharacters, setEditedCharacters] = useState<Record<string, string>>({});
   const [editedLocations, setEditedLocations] = useState<Record<string, string>>({});
   const [playerOpen, setPlayerOpen] = useState(false);
+  /** Index into `gridGallerySlides`; null means gallery modal closed. */
+  const [gridGalleryIndex, setGridGalleryIndex] = useState<number | null>(null);
   const [referenceTab, setReferenceTab] = useState<"shots" | "characters" | "locations">("shots");
   const [shotsView, setShotsView] = useState<"list" | "grid">("list");
   /** Mirrors each group's media hook state into Grid (still frames only there). */
@@ -296,6 +314,29 @@ export function ShotlistStage({
         .filter((x): x is { groupNumber: number; url: string } => x !== null),
     [groupsWithPrompts, videos]
   );
+
+  /** Storyboard stills in shot order — drives grid gallery modal navigation. */
+  const gridGallerySlides = useMemo(() => {
+    const slides: { groupNumber: number; url: string; label: string }[] = [];
+    groupsWithPrompts.forEach(({ group }, idx) => {
+      const gn = group.groupNumber;
+      const snap = panelSurfaceByGroup[gn];
+      const persistedUrl = images[gn]?.url ?? null;
+      const url = resolveGridStoryboardDisplayUrl(snap, persistedUrl);
+      if (!url) return;
+      const shotStart =
+        groupsWithPrompts
+          .slice(0, idx)
+          .reduce((sum, g) => sum + g.group.shots.length, 0) + 1;
+      const shotEnd = shotStart + group.shots.length - 1;
+      const label =
+        shotStart === shotEnd
+          ? `Shot ${shotStart}`
+          : `Shot ${shotStart}-${shotEnd}`;
+      slides.push({ groupNumber: gn, url, label });
+    });
+    return slides;
+  }, [groupsWithPrompts, panelSurfaceByGroup, images]);
 
   /** Groups missing a storyboard still but with a non-empty image prompt. */
   const bulkPendingStoryboardTargets = useMemo(() => {
@@ -734,6 +775,10 @@ export function ShotlistStage({
                 const gn = group.groupNumber;
                 const snap = panelSurfaceByGroup[gn];
                 const persistedUrl = images[gn]?.url ?? null;
+                const displayUrl = resolveGridStoryboardDisplayUrl(
+                  snap,
+                  persistedUrl
+                );
 
                 let frameInner: React.ReactNode;
 
@@ -760,9 +805,6 @@ export function ShotlistStage({
                     </button>
                   );
                 } else {
-                  const urlForDisplay =
-                    snap.transientImageUrl ?? persistedUrl ?? null;
-
                   const imageBusyInner =
                     snap.imageBusy ||
                     snap.imageStatus === "starting" ||
@@ -796,11 +838,11 @@ export function ShotlistStage({
                         </button>
                       </div>
                     );
-                  } else if (urlForDisplay) {
+                  } else if (displayUrl) {
                     frameInner = (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={urlForDisplay}
+                        src={displayUrl}
                         alt={`${shotLabel} storyboard`}
                         className="h-full w-full object-cover"
                       />
@@ -821,13 +863,31 @@ export function ShotlistStage({
                   }
                 }
 
+                const openGallery = () => {
+                  const i = gridGallerySlides.findIndex(
+                    (s) => s.groupNumber === gn
+                  );
+                  if (i !== -1) setGridGalleryIndex(i);
+                };
+
                 return (
                   <div
                     key={`grid-${gn}`}
                     className="flex flex-col gap-1.5"
                   >
                     <div className="aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
-                      {frameInner}
+                      {displayUrl ? (
+                        <button
+                          type="button"
+                          onClick={openGallery}
+                          className="relative block h-full w-full cursor-zoom-in overflow-hidden rounded-[inherit] text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#2a2a35]"
+                          aria-label={`View ${shotLabel} storyboard fullscreen`}
+                        >
+                          {frameInner}
+                        </button>
+                      ) : (
+                        frameInner
+                      )}
                     </div>
                     <p className="truncate px-0.5 text-xs font-medium text-white/45">
                       {shotLabel}
@@ -922,6 +982,13 @@ export function ShotlistStage({
         <PlayerModal
           videos={playableVideos}
           onClose={() => setPlayerOpen(false)}
+        />
+      )}
+      {gridGalleryIndex !== null && gridGallerySlides.length > 0 && (
+        <StoryboardGridGalleryModal
+          slides={gridGallerySlides}
+          initialIndex={gridGalleryIndex}
+          onClose={() => setGridGalleryIndex(null)}
         />
       )}
     </div>
@@ -1827,6 +1894,129 @@ function VideoTab({
         {hasReferences ? "with character refs" : "text only"}
       </span>
     </button>
+  );
+}
+
+interface StoryboardGridGalleryModalProps {
+  slides: { groupNumber: number; url: string; label: string }[];
+  initialIndex: number;
+  onClose: () => void;
+}
+
+/** Fullscreen gallery for grid storyboard stills — prev/next, thumbnails, ESC. */
+function StoryboardGridGalleryModal({
+  slides,
+  initialIndex,
+  onClose,
+}: StoryboardGridGalleryModalProps) {
+  const safeInitial = Math.min(
+    Math.max(0, initialIndex),
+    Math.max(0, slides.length - 1)
+  );
+  const [index, setIndex] = useState(safeInitial);
+
+  useEffect(() => {
+    setIndex(safeInitial);
+  }, [safeInitial]);
+
+  const current = slides[index];
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight")
+        setIndex((i) => Math.min(i + 1, slides.length - 1));
+      else if (e.key === "ArrowLeft")
+        setIndex((i) => Math.max(i - 1, 0));
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, slides.length]);
+
+  if (!current) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-[#2a2a35]"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="storyboard-gallery-title"
+    >
+      <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-6 py-3 text-sm text-white/40">
+        <div id="storyboard-gallery-title">
+          {current.label} · group {current.groupNumber} · {index + 1} of{" "}
+          {slides.length}
+        </div>
+        <div className="flex items-center gap-5">
+          <button
+            type="button"
+            onClick={() => setIndex((i) => Math.max(i - 1, 0))}
+            disabled={index === 0}
+            className="hover:text-white transition cursor-pointer disabled:cursor-not-allowed disabled:text-white/20"
+          >
+            ← Prev
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setIndex((i) => Math.min(i + 1, slides.length - 1))
+            }
+            disabled={index >= slides.length - 1}
+            className="hover:text-white transition cursor-pointer disabled:cursor-not-allowed disabled:text-white/20"
+          >
+            Next →
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="hover:text-white transition cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-6">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            key={current.url}
+            src={current.url}
+            alt={current.label}
+            className="max-h-full max-w-full object-contain"
+          />
+        </div>
+
+        <div className="shrink-0 border-t border-white/10 bg-black/20 px-4 py-3">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/35">
+            All storyboards ({slides.length})
+          </p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {slides.map((s, i) => (
+              <button
+                key={`${s.groupNumber}-${s.url}`}
+                type="button"
+                onClick={() => setIndex(i)}
+                className={`relative h-16 w-[5.5rem] shrink-0 overflow-hidden rounded-lg border transition ${
+                  i === index
+                    ? "border-white/60 ring-2 ring-white/30"
+                    : "border-white/15 opacity-75 hover:border-white/35 hover:opacity-100"
+                }`}
+                aria-label={`Show ${s.label}`}
+                aria-current={i === index ? "true" : undefined}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={s.url}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
