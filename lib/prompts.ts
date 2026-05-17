@@ -248,6 +248,7 @@ SHOT WRITING RULES
 - THREAD THE CINEMATOGRAPHY BASELINE into the prose. Where space allows, name a focal length character (35mm wide, 85mm portrait, anamorphic, etc.) and a lighting register (Rembrandt key, Negative Fill, motivated practical, hard sidelight). Integration cues (warm bounce, halation around bright sources, drifting haze, dust motes) live in the atmosphere clause. Aim for at least one optics cue AND one lighting cue per shot.
 - Duration: integer seconds, 1–15. Chorus/drop: 1-2s flashes. Verse: 2-4s. Bridge/intro: 5-10s. Vary — never flatten to a uniform pace.
 - DO NOT insert reference markers like "@Image N" or "@Audio N". Character and location references are injected automatically downstream as <<<image_N>>> markers and there is no audio sync layer.
+- Avoid using locked-off shots
 
 CAST + LOCATION TAG RULE
 Refer to people by their character TAG and places by their location TAG. Never "a figure", "the couple", "the friends", or group nouns for named cast. Never "a street", "the rooftop", or generic place nouns when a location TAG exists for that environment.
