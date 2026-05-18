@@ -58,7 +58,7 @@ export function IdeasStage({
   const hasLyrics = input.lyrics.trim().length > 20;
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto w-full max-w-[1200px] px-12 py-6">
       <div className="mb-6 flex items-center justify-between">
         <div className="text-xs font-medium text-white/50">
           {ideas.length

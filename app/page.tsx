@@ -28,7 +28,19 @@ const EMPTY: SongInput = {
   concept: "",
 };
 
-const STAGE_LABELS = ["Song Details", "Treatments", "Storyboard"];
+const STAGE_LABELS = [
+  "Song",
+  "Treatments",
+  "Cast",
+  "Locations",
+  "Shots",
+] as const;
+
+function storyboardPaneForStage(stage: number) {
+  if (stage === 2) return "characters" as const;
+  if (stage === 3) return "locations" as const;
+  return "shots" as const;
+}
 
 export default function Home() {
   const [stage, setStage] = useState(0);
@@ -64,6 +76,8 @@ export default function Home() {
   }>({ done: 0, total: 0 });
   const [hydrated, setHydrated] = useState(false);
   const runIdRef = useRef(0);
+  /** After picking a treatment, switch from Shots to Cast once generation settles. */
+  const pendingCastAfterChosenRunRef = useRef(false);
 
   async function generateShots(forAngle: Idea | null, _mode: ShotMode) {
     // _mode is preserved on the signature so the rest of the app keeps
@@ -220,6 +234,23 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (shotsLoading) return;
+    if (!pendingCastAfterChosenRunRef.current) return;
+    pendingCastAfterChosenRunRef.current = false;
+    const hasAnything =
+      characters.length > 0 ||
+      groups.length > 0 ||
+      locations.length > 0;
+    if (!hasAnything) return;
+    setStage((s) => (s === 4 ? 2 : s));
+  }, [
+    shotsLoading,
+    groups.length,
+    characters.length,
+    locations.length,
+  ]);
+
+  useEffect(() => {
     if (!hydrated) return;
     saveProject({
       input,
@@ -256,7 +287,7 @@ export default function Home() {
   function canJump(i: number): boolean {
     if (i === 0) return true;
     if (i === 1) return !!input.lyrics.trim() || !!input.concept.trim();
-    if (i === 2) return !!angle && !!input.lyrics.trim();
+    if (i >= 2 && i <= 4) return !!angle && !!input.lyrics.trim();
     return false;
   }
 
@@ -275,12 +306,14 @@ export default function Home() {
     setVideos({});
     setImages({});
     setShotsError(null);
+    pendingCastAfterChosenRunRef.current = false;
     setStage(0);
   }
 
   function chooseAngle(a: Idea | null) {
     setAngle(a);
-    setStage(2);
+    pendingCastAfterChosenRunRef.current = true;
+    setStage(4);
     // Hardcoded "detailed" — multi-shot is currently hidden from the UI.
     // Even though `shotMode` state and `genShotlist`'s mode param still
     // exist, we never pass anything else from here. Restore the original
@@ -299,7 +332,7 @@ export default function Home() {
             <nav
               role="tablist"
               aria-label="Treatment stages"
-              className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1"
+              className="flex max-w-full flex-wrap justify-center gap-1 rounded-full border border-white/10 bg-white/5 p-1"
             >
               {STAGE_LABELS.map((s, i) => {
                 const active = i === stage;
@@ -311,7 +344,7 @@ export default function Home() {
                     aria-selected={active}
                     onClick={() => jumpable && setStage(i)}
                     disabled={!jumpable}
-                    className={`cursor-pointer rounded-full px-5 py-1.5 font-serif text-base transition disabled:cursor-not-allowed ${
+                    className={`cursor-pointer rounded-full px-3 py-1.5 font-serif text-sm transition sm:px-4 sm:text-base disabled:cursor-not-allowed ${
                       active
                         ? "bg-white text-black shadow-sm"
                         : jumpable
@@ -356,15 +389,14 @@ export default function Home() {
         />
       )}
       {/*
-        ShotlistStage is mounted at all times so the per-card usePrediction
-        hooks keep polling Replicate when the user switches to Song Details
-        or Treatments. Without this, switching tabs unmounts every shot /
-        character / location card and any in-flight image/video generation
-        is silently dropped. InputStage and IdeasStage stay conditionally
-        rendered — IdeasStage auto-fires genIdeas on first mount, so eager
-        mounting would kick off a Claude call before the user is ready.
+        ShotlistStage is mounted (hidden vs stages 0–1) whenever any post-
+        treatment workspace tab is selected — Cast, Locations, or Shots.
+        Keeps MediaPanel usePrediction hooks alive so switching away does not
+        drop in-flight Replicate work. InputStage and IdeasStage stay
+        conditionally rendered — IdeasStage auto-fires genIdeas on first mount,
+        so eager mounting would kick off a Claude call before the user is ready.
       */}
-      <div className={stage === 2 ? undefined : "hidden"}>
+      <div className={stage >= 2 && stage <= 4 ? undefined : "hidden"}>
         <ShotlistStage
           input={input}
           angle={angle}
@@ -384,6 +416,7 @@ export default function Home() {
           error={shotsError}
           streamPreview={streamPreview}
           phaseProgress={phaseProgress}
+          storyboardPane={storyboardPaneForStage(stage)}
           onGenerate={() => generateShots(angle, "detailed")}
           onBack={() => setStage(1)}
         />

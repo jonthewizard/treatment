@@ -100,6 +100,18 @@ type MediaPanelHandle = {
   generateVideo: () => void;
 };
 
+/** Nano Banana lifecycle snapshot for portrait/reference bulk generation. */
+type PortraitNanoSurface = {
+  imageBusy: boolean;
+  imageStatus: ReturnType<typeof useGroupImage>["status"];
+  transientImageUrl: string | null;
+  imageError: string | null;
+};
+
+type PortraitBulkHandle = {
+  generatePortrait: () => void;
+};
+
 interface ShotlistStageProps {
   input: SongInput;
   angle: Idea | null;
@@ -131,6 +143,8 @@ interface ShotlistStageProps {
   // completes; once total > 0 the overlay switches from a streaming
   // outline preview to a "Generating N of M shots..." count-up.
   phaseProgress?: { done: number; total: number };
+  /** Driven by parent page tabs — Shots vs Cast vs Locations stay mounted via visibility. */
+  storyboardPane?: "shots" | "characters" | "locations";
   onGenerate: () => void;
   onBack: () => void;
 }
@@ -160,6 +174,7 @@ export function ShotlistStage({
   error,
   streamPreview,
   phaseProgress,
+  storyboardPane = "shots",
   onGenerate,
   onBack,
 }: ShotlistStageProps) {
@@ -173,7 +188,6 @@ export function ShotlistStage({
   const [playerOpen, setPlayerOpen] = useState(false);
   /** Index into `gridGallerySlides`; null means gallery modal closed. */
   const [gridGalleryIndex, setGridGalleryIndex] = useState<number | null>(null);
-  const [referenceTab, setReferenceTab] = useState<"shots" | "characters" | "locations">("shots");
   const [shotsView, setShotsView] = useState<"list" | "grid">("list");
   /** Mirrors each group's media hook state into Grid (still frames only there). */
   const [panelSurfaceByGroup, setPanelSurfaceByGroup] = useState<
@@ -201,7 +215,47 @@ export function ShotlistStage({
   panelSurfaceRef.current = panelSurfaceByGroup;
   const imagesBulkRef = useRef(images);
   imagesBulkRef.current = images;
+  const portraitsBulkRef = useRef(portraits);
+  portraitsBulkRef.current = portraits;
+  const locationPortraitsBulkRef = useRef(locationPortraits);
+  locationPortraitsBulkRef.current = locationPortraits;
   const [bulkStoryboardRunning, setBulkStoryboardRunning] = useState(false);
+  const characterPortraitApisRef = useRef<Map<string, PortraitBulkHandle>>(
+    new Map()
+  );
+  const locationPortraitApisRef = useRef<Map<string, PortraitBulkHandle>>(
+    new Map()
+  );
+  const characterPortraitSurfaceRef = useRef<
+    Record<string, PortraitNanoSurface>
+  >({});
+  const locationPortraitSurfaceRef = useRef<
+    Record<string, PortraitNanoSurface>
+  >({});
+  const registerCharacterPortraitSurface = useCallback(
+    (tag: string, snapshot: PortraitNanoSurface | null) => {
+      if (snapshot === null) {
+        delete characterPortraitSurfaceRef.current[tag];
+      } else {
+        characterPortraitSurfaceRef.current[tag] = snapshot;
+      }
+    },
+    []
+  );
+  const registerLocationPortraitSurface = useCallback(
+    (tag: string, snapshot: PortraitNanoSurface | null) => {
+      if (snapshot === null) {
+        delete locationPortraitSurfaceRef.current[tag];
+      } else {
+        locationPortraitSurfaceRef.current[tag] = snapshot;
+      }
+    },
+    []
+  );
+  const [bulkCharacterPortraitsRunning, setBulkCharacterPortraitsRunning] =
+    useState(false);
+  const [bulkLocationPortraitsRunning, setBulkLocationPortraitsRunning] =
+    useState(false);
 
   // Build the reference image list (characters first, then locations) and
   // inject matching <<<image_N>>> markers into every Kling prompt. Order
@@ -438,6 +492,200 @@ export function ShotlistStage({
     }
   }, [bulkPendingStoryboardTargets]);
 
+  const bulkPendingCharacterTags = useMemo(() => {
+    const tags: string[] = [];
+    for (const c of characters) {
+      const desc = (editedCharacters[c.tag] ?? c.description).trim();
+      if (!desc) continue;
+      if (portraits[c.tag]?.url) continue;
+      tags.push(c.tag);
+    }
+    return tags;
+  }, [characters, editedCharacters, portraits]);
+
+  const bulkPendingLocationTags = useMemo(() => {
+    const tags: string[] = [];
+    for (const l of locations) {
+      const desc = (editedLocations[l.tag] ?? l.description).trim();
+      if (!desc) continue;
+      if (locationPortraits[l.tag]?.url) continue;
+      tags.push(l.tag);
+    }
+    return tags;
+  }, [locations, editedLocations, locationPortraits]);
+
+  const runBulkCharacterPortraits = useCallback(async () => {
+    const surfacesRef = characterPortraitSurfaceRef;
+
+    function characterPortraitBusy(tag: string): boolean {
+      const s = surfacesRef.current[tag];
+      return !!(
+        s &&
+        (s.imageBusy ||
+          s.imageStatus === "starting" ||
+          s.imageStatus === "processing")
+      );
+    }
+
+    async function waitCharacterPortraitOutcome(tag: string): Promise<void> {
+      const t0 = Date.now();
+      let sawBusy = false;
+
+      await new Promise<void>((resolve) => {
+        const iv = setInterval(() => {
+          if (Date.now() - t0 > STORYBOARD_OUTCOME_MAX_MS) {
+            clearInterval(iv);
+            resolve();
+            return;
+          }
+          const s = surfacesRef.current[tag];
+          const persisted = portraitsBulkRef.current[tag]?.url;
+          const busy = !!(
+            s &&
+            (s.imageBusy ||
+              s.imageStatus === "starting" ||
+              s.imageStatus === "processing")
+          );
+          if (busy) sawBusy = true;
+
+          if (persisted) {
+            clearInterval(iv);
+            resolve();
+            return;
+          }
+          if (s?.imageStatus === "failed") {
+            clearInterval(iv);
+            resolve();
+            return;
+          }
+          if (s?.imageStatus === "succeeded") {
+            if (s.transientImageUrl || !busy) {
+              clearInterval(iv);
+              resolve();
+              return;
+            }
+          }
+          if (sawBusy && !busy && s?.imageStatus === "idle") {
+            clearInterval(iv);
+            resolve();
+          }
+        }, STORYBOARD_OUTCOME_POLL_MS);
+      });
+    }
+
+    const q = bulkPendingCharacterTags.filter(
+      (tag) => !characterPortraitBusy(tag)
+    );
+
+    if (q.length === 0) return;
+
+    setBulkCharacterPortraitsRunning(true);
+    try {
+      await Promise.all(
+        Array.from(
+          { length: Math.min(BULK_STORYBOARD_CONCURRENCY, q.length) },
+          async () => {
+            while (q.length > 0) {
+              const tag = q.shift();
+              if (!tag) break;
+              const api = characterPortraitApisRef.current.get(tag);
+              if (!api) continue;
+              api.generatePortrait();
+              await waitCharacterPortraitOutcome(tag);
+            }
+          }
+        )
+      );
+    } finally {
+      setBulkCharacterPortraitsRunning(false);
+    }
+  }, [bulkPendingCharacterTags]);
+
+  const runBulkLocationPortraits = useCallback(async () => {
+    const surfacesRef = locationPortraitSurfaceRef;
+
+    function locationPortraitBusy(tag: string): boolean {
+      const s = surfacesRef.current[tag];
+      return !!(
+        s &&
+        (s.imageBusy ||
+          s.imageStatus === "starting" ||
+          s.imageStatus === "processing")
+      );
+    }
+
+    async function waitLocationPortraitOutcome(tag: string): Promise<void> {
+      const t0 = Date.now();
+      let sawBusy = false;
+
+      await new Promise<void>((resolve) => {
+        const iv = setInterval(() => {
+          if (Date.now() - t0 > STORYBOARD_OUTCOME_MAX_MS) {
+            clearInterval(iv);
+            resolve();
+            return;
+          }
+          const s = surfacesRef.current[tag];
+          const persisted = locationPortraitsBulkRef.current[tag]?.url;
+          const busy = !!(
+            s &&
+            (s.imageBusy ||
+              s.imageStatus === "starting" ||
+              s.imageStatus === "processing")
+          );
+          if (busy) sawBusy = true;
+
+          if (persisted) {
+            clearInterval(iv);
+            resolve();
+            return;
+          }
+          if (s?.imageStatus === "failed") {
+            clearInterval(iv);
+            resolve();
+            return;
+          }
+          if (s?.imageStatus === "succeeded") {
+            if (s.transientImageUrl || !busy) {
+              clearInterval(iv);
+              resolve();
+              return;
+            }
+          }
+          if (sawBusy && !busy && s?.imageStatus === "idle") {
+            clearInterval(iv);
+            resolve();
+          }
+        }, STORYBOARD_OUTCOME_POLL_MS);
+      });
+    }
+
+    const q = bulkPendingLocationTags.filter((tag) => !locationPortraitBusy(tag));
+
+    if (q.length === 0) return;
+
+    setBulkLocationPortraitsRunning(true);
+    try {
+      await Promise.all(
+        Array.from(
+          { length: Math.min(BULK_STORYBOARD_CONCURRENCY, q.length) },
+          async () => {
+            while (q.length > 0) {
+              const tag = q.shift();
+              if (!tag) break;
+              const api = locationPortraitApisRef.current.get(tag);
+              if (!api) continue;
+              api.generatePortrait();
+              await waitLocationPortraitOutcome(tag);
+            }
+          }
+        )
+      );
+    } finally {
+      setBulkLocationPortraitsRunning(false);
+    }
+  }, [bulkPendingLocationTags]);
+
   const title = shotlistTitle(input, angle);
 
   if (loading)
@@ -541,61 +789,25 @@ export function ShotlistStage({
       </div>
 
       <div className="mt-6 flex min-h-0 flex-1 flex-col">
-        <div className="mb-3 flex shrink-0 items-center gap-3">
-          <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1">
-            <button
-              onClick={() => setReferenceTab("shots")}
-              className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
-                referenceTab === "shots"
-                  ? "bg-white text-black shadow-sm"
-                  : "text-white/60 hover:bg-white/5 hover:text-white/90"
-              }`}
-            >
-              Shots · {groupsWithPrompts.length}
-            </button>
-            <button
-              onClick={() => setReferenceTab("characters")}
-              className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
-                referenceTab === "characters"
-                  ? "bg-white text-black shadow-sm"
-                  : "text-white/60 hover:bg-white/5 hover:text-white/90"
-              }`}
-            >
-              Cast · {characters.length}
-            </button>
-            <button
-              onClick={() => setReferenceTab("locations")}
-              className={`cursor-pointer rounded-full px-4 py-1 text-sm font-medium transition ${
-                referenceTab === "locations"
-                  ? "bg-white text-black shadow-sm"
-                  : "text-white/60 hover:bg-white/5 hover:text-white/90"
-              }`}
-            >
-              Locations · {locations.length}
-            </button>
-          </div>
-          <div className="flex-1" />
-          {referenceTab === "shots" &&
-            groupsWithPrompts.length > 0 && (
-              <button
-                type="button"
+        {storyboardPane === "shots" &&
+          groupsWithPrompts.length > 0 && (
+            <div className="mb-3 flex shrink-0 flex-wrap items-center justify-end gap-3">
+              <Btn
+                small
+                darkGreen
                 title="Runs up to 3 Nano Banana stills in parallel. Skips shots that already have a storyboard image."
                 disabled={
                   bulkStoryboardRunning ||
                   bulkPendingStoryboardTargets.length === 0
                 }
                 onClick={() => void runBulkStoryboardGeneration()}
-                className="shrink-0 text-sm font-medium transition cursor-pointer text-white/40 hover:text-white/85 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {bulkStoryboardRunning
                   ? "Generating stills…"
                   : bulkPendingStoryboardTargets.length === 0
                     ? "All stills generated"
-                    : `Generate missing stills (${bulkPendingStoryboardTargets.length})`}
-              </button>
-            )}
-          {referenceTab === "shots" &&
-            groupsWithPrompts.length > 0 && (
+                    : "Generate stills"}
+              </Btn>
               <div className="flex gap-1 rounded-full border border-white/10 bg-white/5 p-1">
                 <button
                   type="button"
@@ -620,8 +832,8 @@ export function ShotlistStage({
                   Grid
                 </button>
               </div>
-            )}
-        </div>
+            </div>
+          )}
         {/*
           Tab panes and Shots List/Grid stay mounted — only visibility toggles.
           That keeps MediaPanel usePrediction hooks alive so in-flight
@@ -629,7 +841,7 @@ export function ShotlistStage({
         */}
         <div
           className={
-            referenceTab === "shots"
+            storyboardPane === "shots"
               ? "flex min-h-0 flex-1 flex-col"
               : "hidden"
           }
@@ -897,85 +1109,154 @@ export function ShotlistStage({
               })}
             </div>
           </div>
-        {characters.length > 0 && (
-            <div
-              className={
-                referenceTab === "characters"
-                  ? "flex flex-col gap-4 pb-4"
-                  : "hidden"
-              }
-            >
-              {characters.map((c) => (
-                <CharacterCard
-                  key={c.tag}
-                  character={c}
-                  look=""
-                  initialPortrait={portraits[c.tag] ?? null}
-                  onPersist={(next) =>
-                    setPortraits((ps) => {
-                      if (!next) {
-                        const copy = { ...ps };
-                        delete copy[c.tag];
-                        return copy;
-                      }
-                      return { ...ps, [c.tag]: next };
-                    })
-                  }
-                  editedDescription={editedCharacters[c.tag]}
-                  onDescriptionChange={(description) =>
-                    setEditedCharacters((prev) => ({ ...prev, [c.tag]: description }))
-                  }
-                  copied={copiedCharacter === c.tag}
-                  onCopy={() => {
-                    const currentDescription = editedCharacters[c.tag] ?? c.description;
-                    navigator.clipboard.writeText(currentDescription).then(() => {
-                      setCopiedCharacter(c.tag);
-                      setTimeout(() => setCopiedCharacter(null), 1500);
-                    });
-                  }}
-                />
-              ))}
-            </div>
-          )}
-          {locations.length > 0 && (
-            <div
-              className={
-                referenceTab === "locations"
-                  ? "flex flex-col gap-4 pb-4"
-                  : "hidden"
-              }
-            >
-              {locations.map((l) => (
-                <LocationCard
-                  key={l.tag}
-                  location={l}
-                  initialPortrait={locationPortraits[l.tag] ?? null}
-                  onPersist={(next) =>
-                    setLocationPortraits((ps) => {
-                      if (!next) {
-                        const copy = { ...ps };
-                        delete copy[l.tag];
-                        return copy;
-                      }
-                      return { ...ps, [l.tag]: next };
-                    })
-                  }
-                  editedDescription={editedLocations[l.tag]}
-                  onDescriptionChange={(description) =>
-                    setEditedLocations((prev) => ({ ...prev, [l.tag]: description }))
-                  }
-                  copied={copiedLocation === l.tag}
-                  onCopy={() => {
-                    const currentDescription = editedLocations[l.tag] ?? l.description;
-                    navigator.clipboard.writeText(currentDescription).then(() => {
-                      setCopiedLocation(l.tag);
-                      setTimeout(() => setCopiedLocation(null), 1500);
-                    });
-                  }}
-                />
-              ))}
-            </div>
-          )}
+          <div
+            className={
+              storyboardPane === "characters"
+                ? "flex flex-col gap-4 pb-4"
+                : "hidden"
+            }
+          >
+            {characters.length === 0 ? (
+              <p className="text-sm text-white/40">
+                No cast yet — it appears once the shot list has been planned.
+              </p>
+            ) : (
+              <>
+                <div className="flex shrink-0 flex-wrap justify-end gap-3">
+                  <Btn
+                    small
+                    darkGreen
+                    title="Runs up to 3 Nano Banana portrait stills in parallel. Skips cast members who already have a reference image."
+                    disabled={
+                      bulkCharacterPortraitsRunning ||
+                      bulkPendingCharacterTags.length === 0
+                    }
+                    onClick={() => void runBulkCharacterPortraits()}
+                  >
+                    {bulkCharacterPortraitsRunning
+                      ? "Generating stills…"
+                      : bulkPendingCharacterTags.length === 0
+                        ? "All stills generated"
+                        : "Generate stills"}
+                  </Btn>
+                </div>
+                {characters.map((c) => (
+                  <CharacterCard
+                    key={c.tag}
+                    character={c}
+                    look=""
+                    initialPortrait={portraits[c.tag] ?? null}
+                    characterPortraitApisSink={characterPortraitApisRef}
+                    registerCharacterPortraitSurface={
+                      registerCharacterPortraitSurface
+                    }
+                    onPersist={(next) =>
+                      setPortraits((ps) => {
+                        if (!next) {
+                          const copy = { ...ps };
+                          delete copy[c.tag];
+                          return copy;
+                        }
+                        return { ...ps, [c.tag]: next };
+                      })
+                    }
+                    editedDescription={editedCharacters[c.tag]}
+                    onDescriptionChange={(description) =>
+                      setEditedCharacters((prev) => ({
+                        ...prev,
+                        [c.tag]: description,
+                      }))
+                    }
+                    copied={copiedCharacter === c.tag}
+                    onCopy={() => {
+                      const currentDescription =
+                        editedCharacters[c.tag] ?? c.description;
+                      navigator.clipboard
+                        .writeText(currentDescription)
+                        .then(() => {
+                          setCopiedCharacter(c.tag);
+                          setTimeout(() => setCopiedCharacter(null), 1500);
+                        });
+                    }}
+                  />
+                ))}
+              </>
+            )}
+          </div>
+          <div
+            className={
+              storyboardPane === "locations"
+                ? "flex flex-col gap-4 pb-4"
+                : "hidden"
+            }
+          >
+            {locations.length === 0 ? (
+              <p className="text-sm text-white/40">
+                No locations yet — they appear once the shot list has been
+                planned.
+              </p>
+            ) : (
+              <>
+                <div className="flex shrink-0 flex-wrap justify-end gap-3">
+                  <Btn
+                    small
+                    darkGreen
+                    title="Runs up to 3 Nano Banana location stills in parallel. Skips locations that already have a reference image."
+                    disabled={
+                      bulkLocationPortraitsRunning ||
+                      bulkPendingLocationTags.length === 0
+                    }
+                    onClick={() => void runBulkLocationPortraits()}
+                  >
+                    {bulkLocationPortraitsRunning
+                      ? "Generating stills…"
+                      : bulkPendingLocationTags.length === 0
+                        ? "All stills generated"
+                        : "Generate stills"}
+                  </Btn>
+                </div>
+                {locations.map((l) => (
+                  <LocationCard
+                    key={l.tag}
+                    location={l}
+                    initialPortrait={locationPortraits[l.tag] ?? null}
+                    locationPortraitApisSink={locationPortraitApisRef}
+                    registerLocationPortraitSurface={
+                      registerLocationPortraitSurface
+                    }
+                    onPersist={(next) =>
+                      setLocationPortraits((ps) => {
+                        if (!next) {
+                          const copy = { ...ps };
+                          delete copy[l.tag];
+                          return copy;
+                        }
+                        return { ...ps, [l.tag]: next };
+                      })
+                    }
+                    editedDescription={editedLocations[l.tag]}
+                    onDescriptionChange={(description) =>
+                      setEditedLocations((prev) => ({
+                        ...prev,
+                        [l.tag]: description,
+                      }))
+                    }
+                    copied={copiedLocation === l.tag}
+                    onCopy={() => {
+                      const currentDescription =
+                        editedLocations[l.tag] ?? l.description;
+                      navigator.clipboard
+                        .writeText(currentDescription)
+                        .then(() => {
+                          setCopiedLocation(l.tag);
+                          setTimeout(() => setCopiedLocation(null), 1500);
+                        });
+                    }}
+                  />
+                ))}
+              </>
+            )}
+          </div>
       </div>
 
       {playerOpen && playableVideos.length > 0 && (
@@ -1120,7 +1401,7 @@ function EditablePrompt({
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
 
-  // Cast/Locations panes mount while hidden (display: none) so their
+  // Cast/Locations views mount while hidden (display: none) so their
   // generations can poll in the background. While hidden, scrollHeight is 0
   // and the textarea collapses to a 0px height. When the user switches to
   // that tab the textarea becomes visible — we need to re-measure then.
@@ -1179,6 +1460,13 @@ interface CharacterCardProps {
   // portrait prompt — kept on the prop surface so we can opt in later).
   look: string;
   initialPortrait: CharacterPortrait | null;
+  characterPortraitApisSink?: React.MutableRefObject<
+    Map<string, PortraitBulkHandle>
+  >;
+  registerCharacterPortraitSurface?: (
+    tag: string,
+    snapshot: PortraitNanoSurface | null
+  ) => void;
   onPersist: (next: CharacterPortrait | null) => void;
   editedDescription?: string;
   onDescriptionChange: (description: string) => void;
@@ -1194,6 +1482,8 @@ function CharacterCard({
   character,
   look: _look,
   initialPortrait,
+  characterPortraitApisSink,
+  registerCharacterPortraitSurface,
   onPersist,
   editedDescription,
   onDescriptionChange,
@@ -1209,6 +1499,42 @@ function CharacterCard({
     portrait.status === "starting" || portrait.status === "processing";
   const currentDescription = editedDescription ?? character.description;
   const prompt = useMemo(() => derivePortraitPrompt({ ...character, description: currentDescription }), [character, currentDescription]);
+
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
+  const portraitGenRef = useRef(portrait.generate);
+  portraitGenRef.current = portrait.generate;
+
+  useLayoutEffect(() => {
+    const sink = characterPortraitApisSink;
+    if (!sink) return;
+    sink.current.set(character.tag, {
+      generatePortrait: () =>
+        portraitGenRef.current(promptRef.current, "3:4"),
+    });
+    return () => {
+      sink.current.delete(character.tag);
+    };
+  }, [character.tag, characterPortraitApisSink]);
+
+  useEffect(() => {
+    if (!registerCharacterPortraitSurface) return;
+    registerCharacterPortraitSurface(character.tag, {
+      imageBusy: busy,
+      imageStatus: portrait.status,
+      transientImageUrl: portrait.imageUrl ?? null,
+      imageError: portrait.error,
+    });
+    return () =>
+      registerCharacterPortraitSurface(character.tag, null);
+  }, [
+    character.tag,
+    busy,
+    portrait.status,
+    portrait.imageUrl,
+    portrait.error,
+    registerCharacterPortraitSurface,
+  ]);
   return (
     <div className="flex shrink-0 flex-row gap-10 bg-white/[0.04] rounded-2xl p-4">
       <div className="flex min-w-0 flex-1 basis-1/2 flex-col">
@@ -1335,6 +1661,13 @@ function deriveLocationPrompt(l: Location): string {
 interface LocationCardProps {
   location: Location;
   initialPortrait: LocationPortrait | null;
+  locationPortraitApisSink?: React.MutableRefObject<
+    Map<string, PortraitBulkHandle>
+  >;
+  registerLocationPortraitSurface?: (
+    tag: string,
+    snapshot: PortraitNanoSurface | null
+  ) => void;
   onPersist: (next: LocationPortrait | null) => void;
   editedDescription?: string;
   onDescriptionChange: (description: string) => void;
@@ -1349,6 +1682,8 @@ interface LocationCardProps {
 function LocationCard({
   location,
   initialPortrait,
+  locationPortraitApisSink,
+  registerLocationPortraitSurface,
   onPersist,
   editedDescription,
   onDescriptionChange,
@@ -1363,6 +1698,41 @@ function LocationCard({
     portrait.status === "starting" || portrait.status === "processing";
   const currentDescription = editedDescription ?? location.description;
   const prompt = useMemo(() => deriveLocationPrompt({ ...location, description: currentDescription }), [location, currentDescription]);
+
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
+  const portraitGenRef = useRef(portrait.generate);
+  portraitGenRef.current = portrait.generate;
+
+  useLayoutEffect(() => {
+    const sink = locationPortraitApisSink;
+    if (!sink) return;
+    sink.current.set(location.tag, {
+      generatePortrait: () =>
+        portraitGenRef.current(promptRef.current, "16:9"),
+    });
+    return () => {
+      sink.current.delete(location.tag);
+    };
+  }, [location.tag, locationPortraitApisSink]);
+
+  useEffect(() => {
+    if (!registerLocationPortraitSurface) return;
+    registerLocationPortraitSurface(location.tag, {
+      imageBusy: busy,
+      imageStatus: portrait.status,
+      transientImageUrl: portrait.imageUrl ?? null,
+      imageError: portrait.error,
+    });
+    return () => registerLocationPortraitSurface(location.tag, null);
+  }, [
+    location.tag,
+    busy,
+    portrait.status,
+    portrait.imageUrl,
+    portrait.error,
+    registerLocationPortraitSurface,
+  ]);
   return (
     <div className="flex shrink-0 flex-row gap-10 bg-white/[0.04] rounded-2xl p-4">
       <div className="flex min-w-0 flex-1 basis-1/2 flex-col">

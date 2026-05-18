@@ -5,6 +5,8 @@ interface BtnProps {
   onClick?: () => void;
   disabled?: boolean;
   primary?: boolean;
+  /** Softer accent for actions on dark UI (e.g. batch generation). */
+  darkGreen?: boolean;
   small?: boolean;
   /** Square padding for icon-only controls (pair with ariaLabel). */
   iconOnly?: boolean;
@@ -18,6 +20,7 @@ export function Btn({
   onClick,
   disabled,
   primary,
+  darkGreen,
   small,
   iconOnly,
   ariaLabel,
@@ -33,7 +36,9 @@ export function Btn({
       : "px-5 py-2.5 text-base";
   const radius = small ? "rounded-full" : "rounded-2xl";
   const weight = small ? "font-medium" : "font-sans";
-  const style = primary
+  const style = darkGreen
+    ? "bg-emerald-950 border border-emerald-800/80 text-emerald-100 hover:bg-emerald-900 hover:border-emerald-700 hover:text-emerald-50 disabled:border-emerald-900/55 disabled:bg-emerald-950/35 disabled:text-emerald-900/85"
+    : primary
     ? "bg-white/90 text-black hover:bg-white disabled:bg-white/20 disabled:text-white/30"
     : "bg-white/10 border border-white/10 text-white/80 hover:bg-white/20 hover:text-white";
 
